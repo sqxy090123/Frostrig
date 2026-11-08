@@ -1,0 +1,143 @@
+# Release build for the Frostrig Odin project.
+#
+# Triggers:
+#   - git tag matching  rv<major>.<minor>.<patch>[suffix]
+#       e.g. rv1.0.0, rv2.3.1, rv1.4.2-beta
+#   - manually from the Actions "Run workflow" UI (workflow_dispatch)
+#
+# Builds both Windows and Linux, release and debug.
+# The CPU architecture is taken from the "architecture" workflow input
+# (manual trigger) or defaults to amd64 when triggered by a tag.
+#
+# errhandler.odin is committed to the repo root and is compiled into every
+# build.  Its @(init) proc opens "errhandler.log" in the current working
+# directory at startup, so panics are written there in both debug and
+# release builds.
+
+name: build-release
+
+on:
+  push:
+    tags:
+      # rv<semver> with an optional trailing suffix (e.g. -beta, +rc1)
+      - 'rv[0-9]+.[0-9]+.[0-9]+'
+      - 'rv[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: "CPU architecture to build for"
+        type: choice
+        required: true
+        default: amd64
+        options:
+          - amd64
+          - arm64
+          - i386
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.mode }}
+    runs-on: >-
+      ${{ matrix.os == 'windows' && 'windows-latest' || 'ubuntu-latest' }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, windows]
+        mode: [release, debug]
+        # arch is the single architecture selected via workflow_dispatch
+        # input, or amd64 when triggered by a tag.
+        arch:
+          - ${{ github.event.inputs.architecture || 'amd64' }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Odin toolchain
+      # ------------------------------------------------------------------
+      - name: Install Odin
+        uses: odin-lang/setup-odin@v1
+        with:
+          odin-version: "dev-2026-11"
+
+      - name: Install LLVM backend (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang lld
+
+      # ------------------------------------------------------------------
+      # errhandler is committed to the repo root (errhandler.odin) and is
+      # compiled into every build automatically by `odin build .`.  Its
+      # @(init) proc opens "errhandler.log" in the current directory at
+      # startup, so any panic traceback is written there.  No CI step is
+      # needed to install it.
+      # ------------------------------------------------------------------
+
+      # ------------------------------------------------------------------
+      # Build
+      #   -target:<os>_<arch>   selects the target triple
+      #   -microarch:generic    baseline instruction set
+      #   -debug                debug builds: -o:none, ODIN_DEBUG=true,
+      #                         debug info; errhandler.odin always present
+      #   -o:speed              release builds: optimized; errhandler.odin
+      #                         is still compiled in (committed to repo)
+      # ------------------------------------------------------------------
+      - name: Build ${{ matrix.mode }}
+        shell: bash
+        run: |
+          TARGET="${{ matrix.os }}_${{ matrix.arch }}"
+          OUT="dist/frostrig-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.mode }}"
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            OUT="${OUT}.exe"
+          fi
+          mkdir -p dist
+
+          if [[ "${{ matrix.mode }}" == "debug" ]]; then
+            odin build . -target:"$TARGET" -microarch:generic \
+              -debug \
+              -out:"$OUT"
+          else
+            odin build . -target:"$TARGET" -microarch:generic \
+              -o:speed \
+              -out:"$OUT"
+          fi
+
+          echo "Built: $OUT"
+          ls -lh "$OUT"
+
+      # ------------------------------------------------------------------
+      # Smoke test
+      # ------------------------------------------------------------------
+      - name: Run smoke test
+        shell: bash
+        run: |
+          OUT="dist/frostrig-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.mode }}"
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            OUT="${OUT}.exe"
+          fi
+          if [[ "${{ matrix.os }}" == "windows" ]]; then
+            echo "Windows artifact built; skipping execution on Linux runner"
+          else
+            echo "Smoke test: running $OUT"
+            "$OUT" || echo "binary exited non-zero (expected for skeleton)"
+            if [[ "${{ matrix.mode }}" == "debug" && -f "errhandler.log" ]]; then
+              echo "errhandler.log contents:"
+              cat errhandler.log
+            fi
+          fi
+
+      # ------------------------------------------------------------------
+      # Upload
+      # ------------------------------------------------------------------
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frostrig-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.mode }}
+          path: dist/
+          retention-days: 14

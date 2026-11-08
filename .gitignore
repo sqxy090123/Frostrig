@@ -1,0 +1,24 @@
+# Build artifacts
+dist/
+*.o
+*.obj
+
+# Runtime log produced by errhandler.odin (always compiled in)
+errhandler.log
+
+# CI helper scripts superseded by committed errhandler.odin
+.github/scripts/
+
+# Odin toolchain / scratch
+*.tmp
+odin-*
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
