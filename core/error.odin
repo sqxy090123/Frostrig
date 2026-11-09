@@ -12,6 +12,7 @@ Error :: enum u32 {
 	Affinity_Failed,
 	Ffi_Init_Failed,
 	Ffi_Handle_Invalid,
+	Ffi_Call_Failed,
 	Queue_Full,
 	Queue_Empty,
 	Not_Implemented,

@@ -8,7 +8,12 @@ import fmt "core:fmt"
 import time "core:time"
 
 register_algos :: proc() -> core.Error {
-	return algo.register(algo.randomx_entry)
+	err := algo.register(algo.randomx_entry)
+	if err != .None {
+		return err
+	}
+	err = algo.register(algo.randomx_wow_entry)
+	return err
 }
 
 	print_usage :: proc(prog: string) {

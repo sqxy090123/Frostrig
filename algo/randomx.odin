@@ -1,5 +1,6 @@
 package frostrig_algo
 
+import c "core:c"
 import core "../core"
 import ffi "../ffi"
 
@@ -7,50 +8,22 @@ algo_id_randomx: core.Algo_Id = core.Algo_Id(1)
 
 algo_name_randomx: string = "randomx"
 
-// RandomX_Context holds the per-thread RandomX resources: a dedicated VM
-// (with its own scratchpad) plus the shared cache and optional full
-// dataset.  One context is created per worker thread; the cache and
-// dataset are shared read-only across threads, so only the VM is
-// per-thread.
+// RandomX_Context wraps the opaque C handle for the default RandomX variant.
+// All per-thread state (cache, dataset, VM, scratchpad) lives inside the C
+// context; the Odin side holds only this rawptr.
 RandomX_Context :: struct {
-	cache:   ffi.Rx_Cache,
-	dataset: ffi.Rx_Dataset,
-	vm:      ffi.Rx_Vm,
-	flags:   ffi.Rx_Flags,
+	ctx:  ffi.Rx0_Context,
 }
 
-rx_make_flags :: proc(config: core.Algo_Config) -> ffi.Rx_Flags {
-	f: ffi.Rx_Flags = ffi.rx_get_optimal_flags()
+rx_make_flags :: proc(config: core.Algo_Config) -> c.int {
+	f := ffi.rx0_optimal_flags()
 	if config.huge_pages {
-		f = ffi.rx_or(f, ffi.Rx_Flags(ffi.Rx_Flag.Large_Pages))
+		f |= c.int(1)
 	}
 	if config.full_memory {
-		f = ffi.rx_or(f, ffi.Rx_Flags(ffi.Rx_Flag.Full_Mem))
-	}
-	if config.flags != 0 {
-		f = ffi.rx_or(f, ffi.Rx_Flags(config.flags))
+		f |= c.int(4)
 	}
 	return f
-}
-
-// rx_try_create attempts to create a cache with the given flags.  If the
-// cache allocation fails (e.g. huge pages unavailable), it falls back to
-// flags without the Large_Pages bit.
-rx_try_create :: proc(
-	flags:  ffi.Rx_Flags,
-	key:    []u8,
-) -> (cache: ffi.Rx_Cache, flags_used: ffi.Rx_Flags, err: core.Error) {
-	cache, err = ffi.rx_cache_create(flags, key)
-	if err != .None {
-		lp := u32(ffi.Rx_Flags(ffi.Rx_Flag.Large_Pages))
-		retry := ffi.Rx_Flags(u32(flags) & ~lp)
-		cache, err = ffi.rx_cache_create(retry, key)
-		if err != .None {
-			return {}, {}, err
-		}
-		return cache, retry, .None
-	}
-	return cache, flags, .None
 }
 
 // config_key returns the 32-byte seed for the cache.  In a real miner the
@@ -63,84 +36,52 @@ config_key :: proc(config: core.Algo_Config) -> [dynamic]u8 {
 	return key
 }
 
+// rx_try_create attempts to create a C context with the given flags.  If the
+// context allocation fails (e.g. huge pages unavailable), it falls back to
+// flags without the Large_Pages bit.
+rx_try_create :: proc(flags: c.int, key: []u8) -> (ctx: ffi.Rx0_Context, flags_used: c.int, err: core.Error) {
+	ctx, err = ffi.rx0_create(flags, key)
+	if err != .None {
+		lp := c.int(1)
+		retry := flags & ~lp
+		ctx, err = ffi.rx0_create(retry, key)
+		if err != .None {
+			return {}, 0, err
+		}
+		return ctx, retry, .None
+	}
+	return ctx, flags, .None
+}
+
 rx_create :: proc(config: core.Algo_Config) -> (Algo_Handle, core.Error) {
 	flags := rx_make_flags(config)
 	key := config_key(config)
-
-	cache, flags_used, err := rx_try_create(flags, key[:])
+	ctx, flags_used, err := rx_try_create(flags, key[:])
 	if err != .None {
 		return {}, err
 	}
-
-	dataset := ffi.Rx_Dataset{}
-	if ffi.rx_has(flags_used, ffi.Rx_Flags(ffi.Rx_Flag.Full_Mem)) {
-		dataset, err = ffi.rx_dataset_create(flags_used, cache)
-		if err != .None {
-			ffi.rx_cache_destroy(cache)
-			return {}, err
-		}
-	}
-
-	vm, vm_err := ffi.rx_vm_create(flags_used, cache, dataset)
-	if vm_err != .None {
-		err = vm_err
-		if ffi.rx_dataset_is_nil(dataset) == false {
-			ffi.rx_dataset_destroy(dataset)
-		}
-		ffi.rx_cache_destroy(cache)
-		return {}, err
-	}
-
-	ctx := new(RandomX_Context)
-	ctx.cache = cache
-	ctx.dataset = dataset
-	ctx.vm = vm
-	ctx.flags = flags_used
-
-	return Algo_Handle{id = algo_id_randomx, ctx = rawptr(ctx)}, .None
+	c_ctx := new(RandomX_Context)
+	c_ctx.ctx = ctx
+	_ = flags_used
+	return Algo_Handle{id = algo_id_randomx, ctx = rawptr(c_ctx)}, .None
 }
 
 rx_destroy :: proc(handle: Algo_Handle) {
 	if handle.ctx == nil {
 		return
 	}
-	ctx := cast_ptr(handle.ctx)
-	ffi.rx_vm_destroy(ctx.vm)
-	if ffi.rx_dataset_is_nil(ctx.dataset) == false {
-		ffi.rx_dataset_destroy(ctx.dataset)
-	}
-	ffi.rx_cache_destroy(ctx.cache)
-	free(ctx)
+	c_ctx := cast(^RandomX_Context) handle.ctx
+	ffi.rx0_destroy(c_ctx.ctx)
+	free(c_ctx)
 }
 
-// rx_prepare (re)initialises the cache with a new seed.  In light-mode the
-// cache is swapped into the live VM; in full-memory mode the dataset is
-// reinitialised and swapped in.
+// rx_prepare (re)initialises the cache with a new seed.
 rx_prepare :: proc(handle: Algo_Handle, seed: []u8) -> core.Error {
 	if handle.ctx == nil {
 		return core.Error.Not_Initialized
 	}
-	ctx := cast_ptr(handle.ctx)
-	if len(seed) == 0 {
-		return core.Error.Invalid_Argument
-	}
-	if ffi.rx_has(ctx.flags, ffi.Rx_Flags(ffi.Rx_Flag.Full_Mem)) {
-		count := u64(ffi.randomx_dataset_item_count())
-		ffi.randomx_init_dataset(
-			ctx.dataset._ptr,
-			ctx.cache._ptr,
-			0,
-			count,
-		)
-		return ffi.rx_vm_set_dataset(ctx.vm, ctx.dataset)
-	}
-	return ffi.rx_vm_set_cache(ctx.vm, ctx.cache)
-}
-
-// cast_ptr converts the opaque rawptr held in Algo_Handle.ctx back to a
-// concrete ^RandomX_Context pointer.
-cast_ptr :: proc(p: rawptr) -> ^RandomX_Context {
-	return cast(^RandomX_Context) p
+	c_ctx := cast(^RandomX_Context) handle.ctx
+	return ffi.rx0_prepare(c_ctx.ctx, seed)
 }
 
 // rx_hash computes one RandomX hash.  The input is the concatenated
@@ -154,8 +95,8 @@ rx_hash :: proc(
 	if handle.ctx == nil || output == nil {
 		return core.Error.Not_Initialized
 	}
-	ctx := cast_ptr(handle.ctx)
-	if ffi.rx_vm_is_nil(ctx.vm) {
+	c_ctx := cast(^RandomX_Context) handle.ctx
+	if ffi.Rx0_Context_Is_Nil(c_ctx.ctx) {
 		return core.Error.Ffi_Handle_Invalid
 	}
 	if len(input) == 0 {
@@ -169,7 +110,7 @@ rx_hash :: proc(
 	}
 
 	out := make([dynamic]u8, 32)
-	err := ffi.rx_vm_calculate(ctx.vm, buf[:], out[:])
+	err := ffi.rx0_hash(c_ctx.ctx, buf[:], out[:])
 	if err != .None {
 		return err
 	}
