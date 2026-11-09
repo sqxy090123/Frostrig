@@ -44,6 +44,9 @@ lookup_by_name :: proc(name: string) -> (entry: Algo_Entry, ok: bool) {
 		if entries[i].name == name {
 			return entries[i], true
 		}
+		if len(entries[i].alias) > 0 && entries[i].alias == name {
+			return entries[i], true
+		}
 	}
 	return {}, false
 }

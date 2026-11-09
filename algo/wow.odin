@@ -6,7 +6,8 @@ import ffi "../ffi"
 
 algo_id_randomx_wow: core.Algo_Id = core.Algo_Id(2)
 
-algo_name_randomx_wow: string = "randomx-wow"
+algo_name_randomx_wow: string = "rx/wow"
+algo_alias_randomx_wow: string = "randomx-wow"
 
 // RandomX_Wow_Context wraps the opaque C handle for the RandomX "wow"
 // (V2) variant.  All per-thread state lives inside the C context.
@@ -113,6 +114,7 @@ rxwow_hash :: proc(
 randomx_wow_entry: Algo_Entry = Algo_Entry{
 	id = algo_id_randomx_wow,
 	name = algo_name_randomx_wow,
+	alias = algo_alias_randomx_wow,
 	memory = 2 << 20,
 	create = rxwow_create,
 	destroy = rxwow_destroy,

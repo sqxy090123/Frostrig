@@ -243,6 +243,10 @@ list_algos :: proc() {
 	for i in 0 ..< n {
 		entry, _ := algo.lookup_by_index(i)
 		mb := entry.memory / (1024 * 1024)
-		fmt.printfln("%s  (memory: %v MB)", entry.name, mb)
+		if len(entry.alias) > 0 {
+			fmt.printfln("%s (alias: %s)  (memory: %v MB)", entry.name, entry.alias, mb)
+		} else {
+			fmt.printfln("%s  (memory: %v MB)", entry.name, mb)
+		}
 	}
 }

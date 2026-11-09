@@ -6,7 +6,8 @@ import ffi "../ffi"
 
 algo_id_randomx: core.Algo_Id = core.Algo_Id(1)
 
-algo_name_randomx: string = "randomx"
+algo_name_randomx: string = "rx/0"
+algo_alias_randomx: string = "randomx"
 
 // RandomX_Context wraps the opaque C handle for the default RandomX variant.
 // All per-thread state (cache, dataset, VM, scratchpad) lives inside the C
@@ -134,6 +135,7 @@ to_le_bytes :: proc(v: u64) -> [8]u8 {
 randomx_entry: Algo_Entry = Algo_Entry{
 	id = algo_id_randomx,
 	name = algo_name_randomx,
+	alias = algo_alias_randomx,
 	memory = 2 << 20,
 	create = rx_create,
 	destroy = rx_destroy,

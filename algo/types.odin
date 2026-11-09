@@ -19,10 +19,12 @@ Algo_Hash_Proc :: #type proc(
 
 // Algo_Entry is one row of the registry.  `memory` is the approximate
 // per-thread working-set size in bytes, used by the platform layer to
-// pre-allocate huge pages before the pool starts.
+// pre-allocate huge pages before the pool starts.  `alias` is an optional
+// alternate name accepted by `lookup_by_name` (empty string = no alias).
 Algo_Entry :: struct {
 	id:      core.Algo_Id,
 	name:    string,
+	alias:   string,
 	memory:  u64,
 	create:  Algo_Create_Proc,
 	destroy: Algo_Destroy_Proc,
