@@ -2,6 +2,11 @@
 dist/
 *.o
 *.obj
+frostrig
+workspace
+
+# Vendored static libraries (downloaded via script, not committed)
+third_party/
 
 # Runtime log produced by errhandler.odin (always compiled in)
 errhandler.log
