@@ -48,6 +48,13 @@ lookup_by_name :: proc(name: string) -> (entry: Algo_Entry, ok: bool) {
 	return {}, false
 }
 
+lookup_by_index :: proc(index: int) -> (entry: Algo_Entry, ok: bool) {
+	if index < 0 || index >= entry_count {
+		return {}, false
+	}
+	return entries[index], true
+}
+
 count :: proc() -> int {
 	return entry_count
 }

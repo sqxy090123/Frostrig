@@ -3,6 +3,8 @@ package frostrig_worker
 import core "../core"
 import algo "../algo"
 import thread "core:thread"
+import time "core:time"
+import fmt "core:fmt"
 
 MAX_WORKERS :: 256
 
@@ -13,31 +15,44 @@ Pool :: struct {
 	queue:   Job_Queue,
 	state:   core.Lifecycle,
 	rest:    Rest_Window,
+	// per-thread algorithm handles, created in start() and destroyed in stop()
+	handles: [MAX_WORKERS]algo.Algo_Handle,
+	// shared blob for hashing (set by the mining loop once a job arrives)
+	blob:    []u8,
 }
 
-// mine_slice processes one nonce slice for the pool.  This is the hook
-// point where a real mining backend (RandomX, SHA-3, etc.) will be
-// called.  For now it is a placeholder that:
-//   1. applies the developer fee to the slice (1% reserved for the
-//      developer, the rest for the user),
-//   2. ticks the rest window, and
-//   3. if the rest window is due, calls rest_for to let the user's
-//      machine take a break.
-// The fee and rest are both placeholders; the actual hashing is left to
-// the future algo backend.
-mine_slice :: proc(pool: ^Pool, rng: Nonce_Range) -> core.Error {
-	user_rng, dev_rng := apply_developer_fee(rng)
-	// user_rng is what the user's machine works on; dev_rng is reserved
-	// for the developer.  When a pool is integrated, dev_rng will be
-	// directed to the developer's reward address.
-	_ = user_rng
-	_ = dev_rng
+// mine_slice processes one nonce slice for a specific worker thread.
+// It applies the developer fee, ticks the rest window, and calls the
+// algorithm hasher for each nonce in the user range.
+mine_slice :: proc(pool: ^Pool, thread_idx: u32, rng: Nonce_Range) -> core.Error {
+	user_rng, _ := apply_developer_fee(rng)
 
 	if tick_rest_window(&pool.rest) {
 		reset_rest_window(&pool.rest)
 		rest_for()
 	}
+
+	blob := pool.blob
+	out := core.Hash{}
+	for i in 0 ..< user_rng.count {
+		nonce := core.Nonce(user_rng.start) + core.Nonce(i)
+		_ = entry_hash(pool, thread_idx, blob, nonce, &out)
+	}
 	return .None
+}
+
+// entry_hash calls the registered algorithm's hash proc for one nonce.
+entry_hash :: proc(pool: ^Pool, thread_idx: u32, blob: []u8, nonce: core.Nonce, out: ^core.Hash) -> bool {
+	handle := pool.handles[thread_idx]
+	entry, ok := algo.lookup(pool.config.algo)
+	if ok == false {
+		return false
+	}
+	err := entry.hash(handle, blob, nonce, out)
+	if err != .None {
+		return false
+	}
+	return true
 }
 
 create :: proc(config: core.Miner_Config) -> (pool: Pool, err: core.Error) {
@@ -61,11 +76,32 @@ start :: proc(pool: ^Pool) -> core.Error {
 	if pool.state != .Created && pool.state != .Stopped {
 		return .Already_Initialized
 	}
-	// Developer fee + rest window are initialised here so that when the
-	// mining loop is wired up it already has a live Rest_Window to tick.
-	// The fee itself is applied per nonce slice by
-	// split_nonce_range_with_fee; the rest schedule is driven by
-	// tick_rest_window + rest_for in fee.odin.
+
+	entry, ok := algo.lookup(pool.config.algo)
+	if ok == false {
+		return .Unsupported_Algo
+	}
+
+	// create one algo handle per worker thread
+	for i in 0 ..< pool.count {
+		cfg := core.Algo_Config{
+			id           = pool.config.algo,
+			huge_pages   = pool.config.huge_pages,
+			full_memory  = false,
+			flags        = 0,
+			thread_index = u32(i),
+		}
+		handle, herr := entry.create(cfg)
+		if herr != .None {
+			// clean up already-created handles
+			for j in 0 ..< i {
+				entry.destroy(pool.handles[j])
+			}
+			return herr
+		}
+		pool.handles[i] = handle
+	}
+
 	pool.rest = Rest_Window{}
 	pool.state = .Running
 	return .None
@@ -76,6 +112,17 @@ stop :: proc(pool: ^Pool) -> core.Error {
 		return .Invalid_Argument
 	}
 	pool.state = .Stopping
+
+	entry, ok := algo.lookup(pool.config.algo)
+	if ok {
+		for i in 0 ..< pool.count {
+			if pool.handles[i].ctx != nil {
+				entry.destroy(pool.handles[i])
+				pool.handles[i] = algo.Algo_Handle{}
+			}
+		}
+	}
+
 	for i in 0 ..< pool.count {
 		t := pool.threads[i]
 		if t != nil {
@@ -86,4 +133,52 @@ stop :: proc(pool: ^Pool) -> core.Error {
 	}
 	pool.state = .Stopped
 	return .None
+}
+
+// benchmark creates a single algorithm handle via the registry, hashes
+// `count` nonces against a synthetic 8-byte blob, and prints the
+// measured throughput.
+benchmark :: proc(pool: ^Pool, count: u64) {
+	if pool == nil || count == 0 {
+		return
+	}
+	entry, ok := algo.lookup(pool.config.algo)
+	if ok == false {
+		fmt.printfln("benchmark: unsupported algorithm")
+		return
+	}
+
+	cfg := core.Algo_Config{
+		id           = pool.config.algo,
+		huge_pages   = pool.config.huge_pages,
+		full_memory  = false,
+		flags        = 0,
+		thread_index = 0,
+	}
+
+	handle, cerr := entry.create(cfg)
+	if cerr != .None {
+		fmt.printfln("benchmark: algo create failed: %v", cerr)
+		return
+	}
+	defer entry.destroy(handle)
+
+	blob := make([dynamic]u8, 8)
+	blob[0] = 0xaa
+	out := core.Hash{}
+
+	// warm up
+	warm := 8
+	for i in 0 ..< warm {
+		_ = entry.hash(handle, blob[:], core.Nonce(i), &out)
+	}
+
+	t0 := time.now()
+	for i in 0 ..< count {
+		_ = entry.hash(handle, blob[:], core.Nonce(i), &out)
+	}
+	elapsed_ms := time.duration_milliseconds(time.since(t0))
+	mhs := f64(count) / (elapsed_ms / 1000.0)
+	fmt.printfln("benchmark: %v hashes in %v ms  (%.3f MH/s)",
+		count, u64(elapsed_ms+0.5), mhs)
 }
