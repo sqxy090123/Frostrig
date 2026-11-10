@@ -50,13 +50,21 @@ jobs:
 
     env:
       NDK_VERSION: "r25c"
-      # aarch64 -> android36-aarch64, armv7 -> android29-armv7 (NDK target
-      # triples; API level 29 is the minimum for Termux, 36 is current).
+      ANDROID_ARCH: ${{ inputs.architecture }}
       NDK_TRIPLE: >-
         ${{
           inputs.architecture == 'aarch64'
             && 'aarch64-linux-android36'
             || 'armv7a-linux-androideabi29'
+        }}
+      ANDROID_PLATFORM: >-
+        ${{ inputs.architecture == 'aarch64' && '36' || '29' }}
+      # CMake ANDROID_ABI values differ from our input names
+      ANDROID_CMAKE_ABI: >-
+        ${{
+          inputs.architecture == 'aarch64'
+            && 'arm64-v8a'
+            || 'armeabi-v7a'
         }}
 
     steps:
@@ -83,47 +91,55 @@ jobs:
       - name: Fetch RandomX source
         run: |
           set -euo pipefail
-          # tevador/RandomX is the upstream project; pin a tag or use main
-          # if the vendored librandomx.a in third_party/ is not available
-          # to CI (the directory is gitignored).
-          curl -sSL -o randomx.tar.gz \
-            "https://github.com/tevador/RandomX/archive/refs/tags/v1.4.6.tar.gz"
-          mkdir -p randomx
-          tar -xzf randomx.tar.gz -C randomx --strip-components=1
+          # RandomX v1.2.3 is the last v1.x release whose C API matches
+          # third_party/randomx/include/randomx.h (v2.x has a different layout).
+          # third_party/ is gitignored so CI must fetch source.
+          curl -fSL --retry 3 -o randomx.tar.gz \
+            "https://github.com/tevador/RandomX/archive/refs/tags/v1.2.3.tar.gz"
+          tar -tzf randomx.tar.gz >/dev/null  # fail early if not a valid gzip
+          rm -rf randomx_src
+          # tarball top-level dir is RandomX-1.2.3 (tag without the v prefix)
+          tar -xzf randomx.tar.gz
+          mv "$(tar -tzf randomx.tar.gz | head -n 1 | cut -d/ -f1)" randomx_src
+          echo "RandomX source at randomx_src/"; ls randomx_src/src/ | head
 
-      - name: Cross-compile librandomx.so
+      - name: Cross-compile RandomX static lib via CMake
+        run: |
+          set -euo pipefail
+          cmake -S randomx_src -B randomx_src/build \
+            -DCMAKE_TOOLCHAIN_FILE="${NDK_ROOT}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI="${ANDROID_CMAKE_ABI}" \
+            -DANDROID_PLATFORM="${ANDROID_PLATFORM}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          # Build only the 'randomx' target; the CMakeLists also defines test
+          # executables that cannot be built cross-arch.
+          cmake --build randomx_src/build --target randomx -j"$(nproc)"
+          ls -lh randomx_src/build/librandomx.a
+
+      # ------------------------------------------------------------------
+      # Link the 6 frostrig variant modules + librandomx.a into a single
+      # shared library deliverable (one .so to drop into Termux).
+      # ------------------------------------------------------------------
+      - name: Link all variant modules into libfrostrig-randomx.so
         run: |
           set -euo pipefail
           CC="${NDK_TRIPLE}-clang"
           CXX="${NDK_TRIPLE}-clang++"
           mkdir -p build
-          "${CXX}" -std=c++11 -O2 -fPIC -shared \
-            -Irandomx/include \
-            randomx/src/randomx.cpp \
-            -o "build/librandomx-${inputs.architecture}.so" \
-            -lstdc++ -lm -lpthread -ldl \
-            -Wl,--gc-sections
-          ls -lh "build/librandomx-${inputs.architecture}.so"
-
-      # ------------------------------------------------------------------
-      # Cross-compile the 6 frostrig RandomX variant modules
-      # ------------------------------------------------------------------
-      - name: Cross-compile frostrig variant modules into libfrostrig-randomx.so
-        run: |
-          set -euo pipefail
-          CC="${NDK_TRIPLE}-clang"
-          "${CC}" -O2 -fPIC -shared \
-            -Ialgo/randomx \
+          "${CXX}" -O2 -fPIC -shared \
+            -Ialgo/randomx -Irandomx_src/src \
             algo/randomx/0.c \
             algo/randomx/wow.c \
             algo/randomx/2.c \
             algo/randomx/c64.c \
             algo/randomx/v.c \
             algo/randomx/xeq.c \
-            "build/librandomx-${inputs.architecture}.so" \
+            randomx_src/build/librandomx.a \
+            -lstdc++ -lm -lpthread -ldl \
             -Wl,--gc-sections \
-            -o "build/libfrostrig-randomx-${inputs.architecture}.so"
-          ls -lh "build/libfrostrig-randomx-${inputs.architecture}.so"
+            -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
+          ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
 
       # ------------------------------------------------------------------
       # Verify the artefact is a valid ELF for the target architecture and
@@ -132,7 +148,8 @@ jobs:
       - name: Verify exported symbols
         run: |
           set -euo pipefail
-          LIB="build/libfrostrig-randomx-${inputs.architecture}.so"
+          LIB="build/libfrostrig-randomx-${ANDROID_ARCH}.so"
+          readelf -h "${LIB}"
           readelf -d "${LIB}" | grep NEEDED || true
           for sym in \
             frostrig_rx0_create frostrig_rx_wow_create \
@@ -144,15 +161,13 @@ jobs:
           echo "All 6 variant prefixes exported."
 
       # ------------------------------------------------------------------
-      # Bundle both .so files into a single artefact
+      # Upload the single deliverable .so
       # ------------------------------------------------------------------
       - name: Package artefact
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp "build/librandomx-${inputs.architecture}.so" \
-             "build/libfrostrig-randomx-${inputs.architecture}.so" \
-             dist/
+          cp "build/libfrostrig-randomx-${ANDROID_ARCH}.so" dist/
           ls -lh dist/
 
       - name: Upload artefact
