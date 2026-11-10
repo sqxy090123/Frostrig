@@ -131,12 +131,14 @@ to_le_bytes :: proc(v: u64) -> [8]u8 {
 	return b
 }
 
-// RandomX light-mode cache occupies 2 MiB.
+// RandomX full-memory dataset is ~2336 MiB (2 GiB dataset + scratch).
+// If allocation fails, the C module auto-falls back to light-mode cache
+// (~2 MiB).
 randomx_entry: Algo_Entry = Algo_Entry{
-	id = algo_id_randomx,
-	name = algo_name_randomx,
+	id    = algo_id_randomx,
+	name  = algo_name_randomx,
 	alias = algo_alias_randomx,
-	memory = 2 << 20,
+	memory = 2336 * 1024 * 1024,
 	create = rx_create,
 	destroy = rx_destroy,
 	prepare = rx_prepare,

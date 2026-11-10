@@ -111,11 +111,14 @@ rxwow_hash :: proc(
 	return .None
 }
 
+// RandomX full-memory dataset is ~2336 MiB (2 GiB dataset + scratch).
+// If allocation fails, the C module auto-falls back to light-mode cache
+// (~2 MiB).
 randomx_wow_entry: Algo_Entry = Algo_Entry{
-	id = algo_id_randomx_wow,
-	name = algo_name_randomx_wow,
+	id    = algo_id_randomx_wow,
+	name  = algo_name_randomx_wow,
 	alias = algo_alias_randomx_wow,
-	memory = 2 << 20,
+	memory = 2336 * 1024 * 1024,
 	create = rxwow_create,
 	destroy = rxwow_destroy,
 	prepare = rxwow_prepare,
