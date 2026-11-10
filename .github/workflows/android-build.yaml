@@ -1,0 +1,163 @@
+# Android cross-compile build for the Frostrig RandomX algorithm modules.
+#
+# Triggers:
+#   - manually from the Actions "Run workflow" UI (workflow_dispatch)
+#     with an "architecture" input: aarch64 (ARMv8) or armv7 (ARMv7-A, 32-bit)
+#
+# What this job produces
+# ----------------------
+# A single dynamically-linked shared library  libfrostrig-randomx-<arch>.so
+# that bundles the 6 RandomX variant C modules (rx/0, rx/wow, rx/2, rx/c64,
+# rx/v, rx/xeq) together with the RandomX core, and can be dropped into
+# Termux (or proot) on an Android device of the matching architecture.
+#
+#   - Termux:  /data/data/com.termux/files/usr/lib/libfrostrig-randomx-aarch64.so
+#     (NDK libraries resolve against the Termux package manager's
+#     libstdc++/libm/libc when installed into the bionic root)
+#   - proot:    the same .so works under proot with a Linux chroot; run
+#     `patchelf --set-rpath $ORIGIN` if you want the library to find its
+#     own NEEDED entries relative to its own location.
+#
+# The RandomX core is cross-compiled from source (the vendored
+# third_party/ directory is gitignored, so CI must fetch it) and linked
+# as a shared library so that libstdc++ and the bionic C library resolve
+# at load time on the device instead of being statically baked in.
+#
+# errhandler.odin is part of the Odin host program only; it is not
+# included in this C-only cross-compile job.
+
+name: android-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: "Android CPU architecture to cross-compile for"
+        type: choice
+        required: true
+        default: aarch64
+        options:
+          - aarch64
+          - armv7
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: android / ${{ inputs.architecture }}
+    runs-on: ubuntu-latest
+
+    env:
+      NDK_VERSION: "r25c"
+      # aarch64 -> android36-aarch64, armv7 -> android29-armv7 (NDK target
+      # triples; API level 29 is the minimum for Termux, 36 is current).
+      NDK_TRIPLE: >-
+        ${{
+          inputs.architecture == 'aarch64'
+            && 'aarch64-linux-android36'
+            || 'armv7a-linux-androideabi29'
+        }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Android NDK
+      # ------------------------------------------------------------------
+      - name: Download Android NDK ${{ env.NDK_VERSION }}
+        run: |
+          set -euo pipefail
+          curl -sSL -o ndk.zip \
+            "https://dl.google.com/android/repository/ndk-${NDK_VERSION}-linux.zip"
+          mkdir -p toolchain
+          unzip -q ndk.zip -d toolchain
+          NDK_ROOT="$(find toolchain -maxdepth 1 -type d -name 'ndk-*' | head -n 1)"
+          echo "NDK_ROOT=${NDK_ROOT}" >> "${GITHUB_ENV}"
+          echo "${NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "${GITHUB_PATH}"
+
+      # ------------------------------------------------------------------
+      # RandomX core, cross-compiled from source
+      # ------------------------------------------------------------------
+      - name: Fetch RandomX source
+        run: |
+          set -euo pipefail
+          # tevador/RandomX is the upstream project; pin a tag or use main
+          # if the vendored librandomx.a in third_party/ is not available
+          # to CI (the directory is gitignored).
+          curl -sSL -o randomx.tar.gz \
+            "https://github.com/tevador/RandomX/archive/refs/tags/v1.4.6.tar.gz"
+          mkdir -p randomx
+          tar -xzf randomx.tar.gz -C randomx --strip-components=1
+
+      - name: Cross-compile librandomx.so
+        run: |
+          set -euo pipefail
+          CC="${NDK_TRIPLE}-clang"
+          CXX="${NDK_TRIPLE}-clang++"
+          mkdir -p build
+          "${CXX}" -std=c++11 -O2 -fPIC -shared \
+            -Irandomx/include \
+            randomx/src/randomx.cpp \
+            -o "build/librandomx-${inputs.architecture}.so" \
+            -lstdc++ -lm -lpthread -ldl \
+            -Wl,--gc-sections
+          ls -lh "build/librandomx-${inputs.architecture}.so"
+
+      # ------------------------------------------------------------------
+      # Cross-compile the 6 frostrig RandomX variant modules
+      # ------------------------------------------------------------------
+      - name: Cross-compile frostrig variant modules into libfrostrig-randomx.so
+        run: |
+          set -euo pipefail
+          CC="${NDK_TRIPLE}-clang"
+          "${CC}" -O2 -fPIC -shared \
+            -Ialgo/randomx \
+            algo/randomx/0.c \
+            algo/randomx/wow.c \
+            algo/randomx/2.c \
+            algo/randomx/c64.c \
+            algo/randomx/v.c \
+            algo/randomx/xeq.c \
+            "build/librandomx-${inputs.architecture}.so" \
+            -Wl,--gc-sections \
+            -o "build/libfrostrig-randomx-${inputs.architecture}.so"
+          ls -lh "build/libfrostrig-randomx-${inputs.architecture}.so"
+
+      # ------------------------------------------------------------------
+      # Verify the artefact is a valid ELF for the target architecture and
+      # that all 6 variant prefixes are exported.
+      # ------------------------------------------------------------------
+      - name: Verify exported symbols
+        run: |
+          set -euo pipefail
+          LIB="build/libfrostrig-randomx-${inputs.architecture}.so"
+          readelf -d "${LIB}" | grep NEEDED || true
+          for sym in \
+            frostrig_rx0_create frostrig_rx_wow_create \
+            frostrig_rx2_create frostrig_rx_c64_create \
+            frostrig_rx_v_create frostrig_rx_xeq_create; do
+            readelf -W --dyn-syms "${LIB}" | grep -E " T ${sym}$" \
+              || { echo "missing symbol ${sym} in ${LIB}"; exit 1; }
+          done
+          echo "All 6 variant prefixes exported."
+
+      # ------------------------------------------------------------------
+      # Bundle both .so files into a single artefact
+      # ------------------------------------------------------------------
+      - name: Package artefact
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "build/librandomx-${inputs.architecture}.so" \
+             "build/libfrostrig-randomx-${inputs.architecture}.so" \
+             dist/
+          ls -lh dist/
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frostrig-android-${{ inputs.architecture }}
+          path: dist/
+          retention-days: 14
