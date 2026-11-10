@@ -70,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -sSL -o ndk.zip \
-            "https://dl.google.com/android/repository/ndk-${NDK_VERSION}-linux.zip"
+            "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
           mkdir -p toolchain
           unzip -q ndk.zip -d toolchain
           NDK_ROOT="$(find toolchain -maxdepth 1 -type d -name 'ndk-*' | head -n 1)"
