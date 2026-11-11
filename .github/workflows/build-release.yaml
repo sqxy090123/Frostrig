@@ -74,7 +74,7 @@ jobs:
           else
             curl -fSL --retry 3 -o odin.zip \
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-dev-2026-11.zip"
-            7z x odin.zip -o./odin-pkg -y >/dev/null
+            powershell -Command "Expand-Archive -Force -Path odin.zip -DestinationPath .\odin-pkg"
             ODIR="$(ls -d odin-pkg/odin-* 2>/dev/null | head -n 1)"
             echo "${PWD}/${ODIR}" >> GITHUB_PATH
           fi
@@ -125,6 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           cp -r randomx_src randomx_keva_src
+          rm -rf randomx_keva_src/build
           cat > randomx_keva_src/src/configuration.h <<'EOF'
           #pragma once
           #define _KEVACOIN    1

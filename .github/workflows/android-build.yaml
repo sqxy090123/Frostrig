@@ -269,7 +269,7 @@ jobs:
             algo/keva/keva.c \
             randomx_src/build/librandomx.a \
             randomx_keva_src/build/librandomx.a \
-            -lstdc++ -lm -lpthread -ldl \
+            -lstdc++ -lm \
             -Wl,--gc-sections \
             -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
