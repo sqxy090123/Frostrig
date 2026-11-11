@@ -12,7 +12,9 @@ foreign import rx2_mod "../algo/randomx/2.o"
 foreign import rxc64_mod "../algo/randomx/c64.o"
 foreign import rxv_mod "../algo/randomx/v.o"
 foreign import rxxeq_mod "../algo/randomx/xeq.o"
+foreign import rxkeva_mod "../algo/keva/keva.o"
 foreign import librandomx "../third_party/randomx/lib/linux-x86_64/librandomx.a"
+foreign import librandomxkeva "../third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
 
 @(default_calling_convention = "c")
 foreign rx0_mod {
@@ -84,4 +86,16 @@ foreign rxxeq_mod {
 	frostrig_rx_xeq_hash_first    :: proc(ctx: rawptr, input: rawptr, input_size: c.size_t) -> c.int ---
 	frostrig_rx_xeq_hash_next     :: proc(ctx: rawptr, next_input: rawptr, next_input_size: c.size_t, output: rawptr) -> c.int ---
 	frostrig_rx_xeq_hash_last     :: proc(ctx: rawptr, output: rawptr) -> c.int ---
+}
+
+@(default_calling_convention = "c")
+foreign rxkeva_mod {
+	frostrig_rx_keva_optimal_flags :: proc() -> c.int ---
+	frostrig_rx_keva_create        :: proc(flags: c.int, key: rawptr, key_size: c.size_t) -> rawptr ---
+	frostrig_rx_keva_destroy       :: proc(ctx: rawptr) ---
+	frostrig_rx_keva_prepare       :: proc(ctx: rawptr, key: rawptr, key_size: c.size_t) -> c.int ---
+	frostrig_rx_keva_hash          :: proc(ctx: rawptr, input: rawptr, input_size: c.size_t, output: rawptr) -> c.int ---
+	frostrig_rx_keva_hash_first    :: proc(ctx: rawptr, input: rawptr, input_size: c.size_t) -> c.int ---
+	frostrig_rx_keva_hash_next     :: proc(ctx: rawptr, next_input: rawptr, next_input_size: c.size_t, output: rawptr) -> c.int ---
+	frostrig_rx_keva_hash_last     :: proc(ctx: rawptr, output: rawptr) -> c.int ---
 }

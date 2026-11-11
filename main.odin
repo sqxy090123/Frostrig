@@ -15,6 +15,12 @@ register_algos :: proc() -> core.Error {
 		algo.randomx_c64_entry,
 		algo.randomx_v_entry,
 		algo.randomx_xeq_entry,
+		algo.randomx_keva_entry,
+		algo.argon2id_entry,
+		algo.argon2d16000_entry,
+		algo.argon2d1000_entry,
+		algo.vh22_entry,
+		algo.vh31_entry,
 	}
 	for e in entries {
 		err := algo.register(e)
