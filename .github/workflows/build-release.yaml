@@ -65,20 +65,15 @@ jobs:
       - name: Install Odin
         run: |
           set -euo pipefail
-          case "${{ matrix.os }}" in
-            linux)
-              ODIN_URL="https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-nightly+2026-11-03.zip"
-              ;;
-            windows)
-              ODIN_URL="https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-nightly+2026-11-03.zip"
-              ;;
-          esac
-          curl -fSL --retry 3 -o odin.zip "$ODIN_URL"
           if [[ "${{ matrix.os }}" == "linux" ]]; then
-            unzip -q odin.zip -d /tmp/odin
-            ODIR="$(ls /tmp/odin | grep odin- | head -n 1)"
-            echo "/tmp/odin/${ODIR}" >> "${GITHUB_PATH}"
+            curl -fSL --retry 3 -o odin.tar.gz \
+              "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-dev-2026-11.tar.gz"
+            tar xzf odin.tar.gz -C /tmp/
+            ODIR="$(find /tmp -maxdepth 2 -type d -name 'odin-*' | head -n 1)"
+            echo "${ODIR}" >> "${GITHUB_PATH}"
           else
+            curl -fSL --retry 3 -o odin.zip \
+              "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-dev-2026-11.zip"
             7z x odin.zip -o./odin-pkg -y >/dev/null
             ODIR="$(find odin-pkg -maxdepth 2 -type d -name 'odin-*' | head -n 1)"
             echo "$PWD/${ODIR}" >> GITHUB_PATH
