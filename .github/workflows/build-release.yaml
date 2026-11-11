@@ -63,22 +63,31 @@ jobs:
       #   download the nightly binary directly instead.
       # ------------------------------------------------------------------
       - name: Install Odin
+        shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ matrix.os }}" == "linux" ]]; then
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
             curl -fSL --retry 3 -o odin.tar.gz \
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-dev-2026-11.tar.gz"
             tar xzf odin.tar.gz -C .
             ODIR="$(ls -d odin-* | head -n 1)"
             echo "${PWD}/${ODIR}" >> "${GITHUB_PATH}"
+            echo "ODIN_DIR=${ODIR}" >> "${GITHUB_ENV}"
           else
             curl -fSL --retry 3 -o odin.zip \
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-dev-2026-11.zip"
             powershell -Command "Expand-Archive -Force -Path odin.zip -DestinationPath .\odin-pkg"
             ODIR="$(ls -d odin-pkg/odin-* 2>/dev/null | head -n 1)"
-            echo "${PWD}/${ODIR}" >> GITHUB_PATH
+            if [ -z "${ODIR}" ]; then ODIR="odin-pkg/dist"; fi
+            ODIR="${PWD}/${ODIR}"
+            echo "ODIN_DIR=${ODIR}" >> "${GITHUB_ENV}"
+            echo "${ODIR}" >> "${GITHUB_PATH}"
           fi
-          odin version || echo "odin not found on PATH"
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            "${ODIR}/odin" version
+          else
+            "${ODIR}/odin.exe" --version
+          fi
 
       - name: Install LLVM backend (Linux)
         if: runner.os == 'Linux'
@@ -96,12 +105,9 @@ jobs:
 
       # ------------------------------------------------------------------
       # RandomX + Keva static libs
-      #   RandomX and RandomX-Keva are built from source via CMake (the
-      #   .o files in the repo are x86_64 linux only; cross-arch or
-      #   future lib changes require a source build).
-      #   Argon2 / VerusHash use the pre-compiled .o files committed to
-      #   the repo (algo/argon2/*.o, algo/verushash/*.o) — no source
-      #   build step needed.
+      #   RandomX and RandomX-Keva are built from source via CMake.
+      #   Linux:  build/librandomx.a
+      #   Windows: build/Release/randomx.lib
       # ------------------------------------------------------------------
       - name: Fetch RandomX source
         run: |
@@ -119,6 +125,15 @@ jobs:
           cmake -S randomx_src -B randomx_src/build -DCMAKE_BUILD_TYPE=Release
           cmake --build randomx_src/build --target randomx -j"$(nproc)"
           ls -lh randomx_src/build/librandomx.a
+
+      - name: Build RandomX static lib (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S randomx_src -B randomx_src/build -G "Visual Studio 17 2022" -A x64
+          cmake --build randomx_src/build --config Release --target randomx -j 8
+          ls -lh randomx_src/build/Release/randomx.lib
 
       - name: Build RandomX-Keva static lib
         if: runner.os == 'Linux'
@@ -192,34 +207,273 @@ jobs:
           cmake --build randomx_keva_src/build --target randomx -j"$(nproc)"
           ls -lh randomx_keva_src/build/librandomx.a
 
+      - name: Build RandomX-Keva static lib (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -r randomx_src randomx_keva_src
+          rm -rf randomx_keva_src/build
+          cat > randomx_keva_src/src/configuration.h <<'EOF'
+          #pragma once
+          #define _KEVACOIN    1
+          #define RANDOMX_ARGON_MEMORY       262144
+          #define RANDOMX_ARGON_ITERATIONS   3
+          #define RANDOMX_ARGON_LANES        1
+          #ifdef _KEVACOIN
+          #define RANDOMX_ARGON_SALT         "RandomKV\x01"
+          #else
+          #define RANDOMX_ARGON_SALT         "RandomX\x03"
+          #endif
+          #define RANDOMX_CACHE_ACCESSES     8
+          #define RANDOMX_SUPERSCALAR_LATENCY   170
+          #define RANDOMX_DATASET_BASE_SIZE  2147483648
+          #define RANDOMX_DATASET_EXTRA_SIZE 33554368
+          #define RANDOMX_PROGRAM_SIZE       256
+          #define RANDOMX_PROGRAM_ITERATIONS 2048
+          #define RANDOMX_PROGRAM_COUNT      8
+          #ifdef _KEVACOIN
+          #define RANDOMX_SCRATCHPAD_L3      1048576
+          #else
+          #define RANDOMX_SCRATCHPAD_L3      2097152
+          #endif
+          #ifdef _KEVACOIN
+          #define RANDOMX_SCRATCHPAD_L2      131072
+          #else
+          #define RANDOMX_SCRATCHPAD_L2      262144
+          #endif
+          #define RANDOMX_SCRATCHPAD_L1      16384
+          #define RANDOMX_JUMP_BITS          8
+          #define RANDOMX_JUMP_OFFSET        8
+          #define RANDOMX_FREQ_IADD_RS       16
+          #define RANDOMX_FREQ_IADD_M         7
+          #define RANDOMX_FREQ_ISUB_R        16
+          #define RANDOMX_FREQ_ISUB_M         7
+          #define RANDOMX_FREQ_IMUL_R        16
+          #define RANDOMX_FREQ_IMUL_M         4
+          #define RANDOMX_FREQ_IMULH_R        4
+          #define RANDOMX_FREQ_IMULH_M        1
+          #define RANDOMX_FREQ_ISMULH_R       4
+          #define RANDOMX_FREQ_ISMULH_M       1
+          #define RANDOMX_FREQ_IMUL_RCP       8
+          #define RANDOMX_FREQ_INEG_R         2
+          #define RANDOMX_FREQ_IXOR_R        15
+          #define RANDOMX_FREQ_IXOR_M         5
+          #define RANDOMX_FREQ_IROR_R         8
+          #define RANDOMX_FREQ_IROL_R         2
+          #define RANDOMX_FREQ_ISWAP_R        4
+          #define RANDOMX_FREQ_FSWAP_R        4
+          #define RANDOMX_FREQ_FADD_R        16
+          #define RANDOMX_FREQ_FADD_M         5
+          #define RANDOMX_FREQ_FSUB_R        16
+          #define RANDOMX_FREQ_FSUB_M         5
+          #define RANDOMX_FREQ_FSCAL_R        6
+          #define RANDOMX_FREQ_FMUL_R        32
+          #define RANDOMX_FREQ_FDIV_M         4
+          #define RANDOMX_FREQ_FSQRT_R        6
+          #define RANDOMX_FREQ_CBRANCH       25
+          #define RANDOMX_FREQ_CFROUND        1
+          #define RANDOMX_FREQ_ISTORE        16
+          #define RANDOMX_FREQ_NOP            0
+          EOF
+          cmake -S randomx_keva_src -B randomx_keva_src/build -G "Visual Studio 17 2022" -A x64
+          cmake --build randomx_keva_src/build --config Release --target randomx -j 8
+          ls -lh randomx_keva_src/build/Release/randomx.lib
+
+      # ------------------------------------------------------------------
+      # Link third_party static libs
+      #   The third_party/ directory is gitignored; FFI files reference
+      #   specific paths like third_party/randomx/lib/linux-x86_64/...
+      #   so we must create the directory structure and copy the built
+      #   libraries into place before running `odin build`.
+      # ------------------------------------------------------------------
+      - name: Link third_party static libs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          ARCH="linux-x86_64"
+          mkdir -p "third_party/randomx/lib/${ARCH}"
+          mkdir -p "third_party/randomx-keva/lib/${ARCH}"
+          cp randomx_src/build/librandomx.a "third_party/randomx/lib/${ARCH}/librandomx.a"
+          cp randomx_keva_src/build/librandomx.a "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.a"
+          echo "third_party libs in place:"
+          ls -lh third_party/randomx/lib/${ARCH}/
+          ls -lh third_party/randomx-keva/lib/${ARCH}/
+
+      - name: Link third_party static libs (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCH="windows-x86_64"
+          mkdir -p "third_party/randomx/lib/${ARCH}"
+          mkdir -p "third_party/randomx-keva/lib/${ARCH}"
+          cp randomx_src/build/Release/randomx.lib "third_party/randomx/lib/${ARCH}/librandomx.lib"
+          cp randomx_keva_src/build/Release/randomx.lib "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
+          echo "third_party libs in place:"
+          ls -lh third_party/randomx/lib/${ARCH}/
+          ls -lh third_party/randomx-keva/lib/${ARCH}/
+
+      # ------------------------------------------------------------------
+      # Compile C algo modules
+      #   RandomX / Keva variant wrappers (C)
+      #   Argon2 (C library)
+      #   VerusHash (C + C++)
+      #   The .o / .obj / .lib files are gitignored; CI compiles fresh
+      #   objects for the target platform before the Odin build step.
+      # ------------------------------------------------------------------
+      - name: Compile C algo modules (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+
+          # RandomX variant wrappers
+          for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c \
+                   algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c \
+                   algo/keva/keva.c; do
+            O="${f%.c}.o"
+            echo "  -> ${O}"
+            cc -O2 -fPIC -c -Ialgo/randomx -Ialgo/keva "${f}" -o "${O}"
+          done
+
+          # Argon2: combine third_party/argon2/src/*.c + algo/argon2/*.c
+          echo "  -> algo/argon2/argon2_all.o"
+          mkdir -p /tmp/argon2_objs
+          for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
+                   third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
+                   third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
+            B=$(basename "${f}" .c)
+            cc -O2 -fPIC -c -Ithird_party/argon2/include -Ithird_party/argon2/src \
+               "${f}" -o "/tmp/argon2_objs/${B}.o"
+          done
+          cc -O2 -fPIC -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
+            algo/argon2/argon2_id.c -o /tmp/argon2_objs/argon2_id.o
+          cc -O2 -fPIC -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
+            algo/argon2/argon2d.c -o /tmp/argon2_objs/argon2d.o
+          ar rcs algo/argon2/argon2_all.o /tmp/argon2_objs/*.o
+          rm -rf /tmp/argon2_objs
+
+          # VerusHash: C + C++ sources
+          echo "  -> algo/verushash/verushash_all.o"
+          mkdir -p /tmp/vh_objs
+          cc -O2 -fPIC -c algo/verushash/haraka_portable.c -o /tmp/vh_objs/haraka.o
+          c++ -O2 -fPIC -std=c++11 -c algo/verushash/verushash.cpp -o /tmp/vh_objs/vh.o
+          c++ -O2 -fPIC -std=c++11 -c algo/verushash/vh_clhash_portable.cpp -o /tmp/vh_objs/vh_cl.o
+          c++ -O2 -fPIC -std=c++11 -c algo/verushash/vh_hash.cpp -o /tmp/vh_objs/vh_h.o
+          ar rcs algo/verushash/verushash_all.o /tmp/vh_objs/*.o
+          rm -rf /tmp/vh_objs
+
+          echo "C modules compiled"
+
+      - name: Compile C algo modules (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Locate vcvars64.bat
+          VCVARS="$(cmd //c 'echo "%VSINSTALLDIR%" 2>nul')/VC/Auxiliary/Build/vcvars64.bat"
+          if [[ ! -f "${VCVARS}" ]]; then
+            VCVARS="C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat"
+          fi
+          if [[ ! -f "${VCVARS}" ]]; then
+            VCVARS="C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat"
+          fi
+          if [[ ! -f "${VCVARS}" ]]; then
+            VCVARS="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
+          fi
+          echo "vcvars64.bat: ${VCVARS}"
+
+          # Compile a C file with MSVC
+          ccl() {
+            cmd //c "call '${VCVARS}' && cl /nologo /O2 /c ${*}"
+          }
+          # Compile a C++ file with MSVC
+          cxxcl() {
+            cmd //c "call '${VCVARS}' && cl /nologo /O2 /std:c++17 /c ${*}"
+          }
+
+          # RandomX variant wrappers
+          for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c \
+                   algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c \
+                   algo/keva/keva.c; do
+            O="${f%.c}.obj"
+            echo "  -> ${O}"
+            ccl /Ialgo/randomx /Ialgo/keva "${f}" /Fo"${O}"
+          done
+
+          # Argon2: combine third_party/argon2/src/*.c + algo/argon2/*.c
+          echo "  -> algo/argon2/argon2_all.lib"
+          mkdir -p argon2_objs
+          for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
+                   third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
+                   third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
+            B=$(basename "${f}" .c)
+            ccl /Ithird_party/argon2/include /Ithird_party/argon2/src "${f}" /Fo"argon2_objs/${B}.obj"
+          done
+          ccl /Ialgo/argon2 /Ithird_party/argon2/include /Ithird_party/argon2/src \
+            algo/argon2/argon2_id.c /Fo"argon2_objs/argon2_id.obj"
+          ccl /Ialgo/argon2 /Ithird_party/argon2/include /Ithird_party/argon2/src \
+            algo/argon2/argon2d.c /Fo"argon2_objs/argon2d.obj"
+          cmd //c "call '${VCVARS}' && lib /nologo /out:algo/argon2/argon2_all.lib argon2_objs/*.obj"
+          rm -rf argon2_objs
+
+          # VerusHash: C + C++ sources
+          echo "  -> algo/verushash/verushash_all.lib"
+          mkdir -p vh_objs
+          ccl algo/verushash/haraka_portable.c /Fo"vh_objs/haraka.obj"
+          cxxcl algo/verushash/verushash.cpp /Fo"vh_objs/vh.obj"
+          cxxcl algo/verushash/vh_clhash_portable.cpp /Fo"vh_objs/vh_cl.obj"
+          cxxcl algo/verushash/vh_hash.cpp /Fo"vh_objs/vh_h.obj"
+          cmd //c "call '${VCVARS}' && lib /nologo /out:algo/verushash/verushash_all.lib vh_objs/*.obj"
+          rm -rf vh_objs
+
+          echo "C modules compiled (Windows)"
+
       # ------------------------------------------------------------------
       # Build
       # ------------------------------------------------------------------
       - name: Build ${{ matrix.mode }}
         shell: bash
         run: |
+          set -euo pipefail
           TARGET="${{ matrix.os }}_${{ matrix.arch }}"
           OUT="dist/frostrig-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.mode }}"
           if [[ "${{ matrix.os }}" == "windows" ]]; then
             OUT="${OUT}.exe"
           fi
+
           mkdir -p dist
 
+          # On Windows, Odin's C backend may need cl.exe / lld-link on PATH.
+          # The Odin dist/bin directory ships its own tools.
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            if [[ -d "${ODIN_DIR}/bin" ]]; then
+              export PATH="${ODIN_DIR}/bin:${PATH}"
+            fi
+            ODIN="${ODIN_DIR}/odin.exe"
+          else
+            ODIN="${ODIN_DIR}/odin"
+          fi
+
+          # Collect static lib paths for the linker
           EXTRA_LINKER_FLAGS=""
           if [[ "${{ runner.os }}" == "Linux" ]]; then
-            # RandomX + Keva static libs built above
             EXTRA_LINKER_FLAGS="-lstdc++ -lpthread -ldl -lm \
-              $(pwd)/randomx_src/build/librandomx.a \
-              $(pwd)/randomx_keva_src/build/librandomx.a"
+              ${PWD}/third_party/randomx/lib/linux-x86_64/librandomx.a \
+              ${PWD}/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
+          else
+            EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
+              ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib"
           fi
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
-            odin build . -target:"$TARGET" -microarch:generic \
+            "${ODIN}" build . -target:"$TARGET" -microarch:generic \
               -debug \
               -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
               -out:"$OUT"
           else
-            odin build . -target:"$TARGET" -microarch:generic \
+            "${ODIN}" build . -target:"$TARGET" -microarch:generic \
               -o:speed \
               -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
               -out:"$OUT"
@@ -239,7 +493,7 @@ jobs:
             OUT="${OUT}.exe"
           fi
           if [[ "${{ matrix.os }}" == "windows" ]]; then
-            echo "Windows artifact built; skipping execution on Linux runner"
+            echo "Windows artifact built; skipping execution"
           else
             echo "Smoke test: running $OUT"
             "$OUT" || echo "binary exited non-zero (expected for skeleton)"

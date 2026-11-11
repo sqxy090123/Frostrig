@@ -257,7 +257,7 @@ jobs:
           CC="${NDK_TRIPLE}-clang"
           CXX="${NDK_TRIPLE}-clang++"
           mkdir -p build
-          "${CXX}" -O2 -fPIC -shared \
+          "${CXX}" -O2 -fPIC -fvisibility=default -shared \
             -Ialgo/randomx -Ialgo/keva \
             -Irandomx_src/src -Irandomx_keva_src/src \
             algo/randomx/0.c \
@@ -271,6 +271,7 @@ jobs:
             randomx_keva_src/build/librandomx.a \
             -lstdc++ -lm \
             -Wl,--gc-sections \
+            -Wl,--gc-keep-exported \
             -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
 
