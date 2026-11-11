@@ -59,11 +59,31 @@ jobs:
 
       # ------------------------------------------------------------------
       # Odin toolchain
+      #   odin-lang/setup-odin action is not available on GitHub Marketplace;
+      #   download the nightly binary directly instead.
       # ------------------------------------------------------------------
       - name: Install Odin
-        uses: odin-lang/setup-odin@v1
-        with:
-          odin-version: "dev-2026-11"
+        run: |
+          set -euo pipefail
+          case "${{ matrix.os }}" in
+            linux)
+              ODIN_URL="https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-nightly+2026-11-03.zip"
+              ;;
+            windows)
+              ODIN_URL="https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-nightly+2026-11-03.zip"
+              ;;
+          esac
+          curl -fSL --retry 3 -o odin.zip "$ODIN_URL"
+          if [[ "${{ matrix.os }}" == "linux" ]]; then
+            unzip -q odin.zip -d /tmp/odin
+            ODIR="$(ls /tmp/odin | grep odin- | head -n 1)"
+            echo "/tmp/odin/${ODIR}" >> "${GITHUB_PATH}"
+          else
+            7z x odin.zip -o./odin-pkg -y >/dev/null
+            ODIR="$(find odin-pkg -maxdepth 2 -type d -name 'odin-*' | head -n 1)"
+            echo "$PWD/${ODIR}" >> GITHUB_PATH
+          fi
+          odin version || echo "odin not found on PATH"
 
       - name: Install LLVM backend (Linux)
         if: runner.os == 'Linux'

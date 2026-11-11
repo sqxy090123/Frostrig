@@ -54,11 +54,11 @@ jobs:
       NDK_TRIPLE: >-
         ${{
           inputs.architecture == 'aarch64'
-            && 'aarch64-linux-android36'
+            && 'aarch64-linux-android33'
             || 'armv7a-linux-androideabi29'
         }}
       ANDROID_PLATFORM: >-
-        ${{ inputs.architecture == 'aarch64' && '36' || '29' }}
+        ${{ inputs.architecture == 'aarch64' && '33' || '29' }}
       # CMake ANDROID_ABI values differ from our input names
       ANDROID_CMAKE_ABI: >-
         ${{
