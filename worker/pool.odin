@@ -17,6 +17,8 @@ Pool :: struct {
 	rest:    Rest_Window,
 	// per-thread algorithm handles, created in start() and destroyed in stop()
 	handles: [MAX_WORKERS]algo.Algo_Handle,
+	// cached entry resolved once in start(); avoids per-hash lookup
+	entry:   algo.Algo_Entry,
 	// shared blob for hashing (set by the mining loop once a job arrives)
 	blob:    []u8,
 }
@@ -41,14 +43,10 @@ mine_slice :: proc(pool: ^Pool, thread_idx: u32, rng: Nonce_Range) -> core.Error
 	return .None
 }
 
-// entry_hash calls the registered algorithm's hash proc for one nonce.
+// entry_hash calls the cached algorithm's hash proc for one nonce.
 entry_hash :: proc(pool: ^Pool, thread_idx: u32, blob: []u8, nonce: core.Nonce, out: ^core.Hash) -> bool {
 	handle := pool.handles[thread_idx]
-	entry, ok := algo.lookup(pool.config.algo)
-	if ok == false {
-		return false
-	}
-	err := entry.hash(handle, blob, nonce, out)
+	err := pool.entry.hash(handle, blob, nonce, out)
 	if err != .None {
 		return false
 	}
@@ -81,6 +79,7 @@ start :: proc(pool: ^Pool) -> core.Error {
 	if ok == false {
 		return .Unsupported_Algo
 	}
+	pool.entry = entry
 
 	// create one algo handle per worker thread
 	for i in 0 ..< pool.count {
@@ -135,50 +134,54 @@ stop :: proc(pool: ^Pool) -> core.Error {
 	return .None
 }
 
-// benchmark creates a single algorithm handle via the registry, hashes
-// `count` nonces against a synthetic 8-byte blob, and prints the
-// measured throughput.
+bench_args :: struct {
+	entry:  algo.Algo_Entry,
+	handle: algo.Algo_Handle,
+	blob:   []u8,
+	count:  u64,
+}
+
+bench_worker_data :: proc(data: rawptr) {
+	a := cast(^bench_args) data
+	out := core.Hash{}
+	for i in 0 ..< a.count {
+		_ = a.entry.hash(a.handle, a.blob, core.Nonce(i), &out)
+	}
+}
+
+// benchmark runs a multi-threaded benchmark using the handles created by
+// start().  Each thread hashes `count` nonces against a synthetic 8-byte
+// blob; total throughput is printed in MH/s.
 benchmark :: proc(pool: ^Pool, count: u64) {
-	if pool == nil || count == 0 {
+	if pool == nil || count == 0 || pool.count == 0 {
 		return
 	}
-	entry, ok := algo.lookup(pool.config.algo)
-	if ok == false {
-		fmt.printfln("benchmark: unsupported algorithm")
-		return
-	}
-
-	cfg := core.Algo_Config{
-		id           = pool.config.algo,
-		huge_pages   = pool.config.huge_pages,
-		full_memory  = false,
-		flags        = 0,
-		thread_index = 0,
-	}
-
-	handle, cerr := entry.create(cfg)
-	if cerr != .None {
-		fmt.printfln("benchmark: algo create failed: %v", cerr)
-		return
-	}
-	defer entry.destroy(handle)
 
 	blob := make([dynamic]u8, 8)
 	blob[0] = 0xaa
-	out := core.Hash{}
 
-	// warm up
-	warm := 8
-	for i in 0 ..< warm {
-		_ = entry.hash(handle, blob[:], core.Nonce(i), &out)
+	args := make([dynamic]bench_args, pool.count)
+	threads := make([dynamic]^thread.Thread, pool.count)
+	for i in 0 ..< pool.count {
+		args[i] = bench_args{
+			entry  = pool.entry,
+			handle = pool.handles[i],
+			blob   = blob[:],
+			count  = count,
+		}
 	}
 
 	t0 := time.now()
-	for i in 0 ..< count {
-		_ = entry.hash(handle, blob[:], core.Nonce(i), &out)
+	for i in 0 ..< pool.count {
+		threads[i] = thread.create_and_start_with_data(rawptr(&args[i]), bench_worker_data)
+	}
+	for i in 0 ..< pool.count {
+		thread.join(threads[i])
+		thread.destroy(threads[i])
 	}
 	elapsed_ms := time.duration_milliseconds(time.since(t0))
-	mhs := f64(count) / (elapsed_ms / 1000.0)
-	fmt.printfln("benchmark: %v hashes in %v ms  (%.3f MH/s)",
-		count, u64(elapsed_ms+0.5), mhs)
+	total_hashes := f64(pool.count) * f64(count)
+	mhs := total_hashes / (elapsed_ms / 1000.0)
+	fmt.printfln("benchmark: %v threads x %v hashes in %v ms  (%.1f H/s total)",
+		u64(pool.count), count, u64(elapsed_ms+0.5), mhs)
 }

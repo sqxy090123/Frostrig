@@ -98,7 +98,7 @@ main :: proc() {
 	}
 
 	if config.bench {
-		worker.benchmark(&pool, 100)
+		worker.benchmark(&pool, config.bench_count)
 		worker.stop(&pool)
 		return
 	}

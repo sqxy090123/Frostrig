@@ -83,14 +83,33 @@ rx2_hash :: proc(
 	if len(input) == 0 {
 		return core.Error.Invalid_Argument
 	}
-	buf := make([dynamic]u8, len(input)+8)
-	copy(buf[:len(input)], input)
-	nonce_bytes := to_le_bytes(nonce)
+	nb := to_le_bytes(nonce)
+
+	if len(input)+8 <= HASH_STACK_IN {
+		buf: [HASH_STACK_IN]u8
+		copy(buf[:len(input)], input)
+		for i in 0 ..< 8 {
+			buf[len(input)+i] = nb[i]
+		}
+		out: [HASH_STACK_OUT]u8
+		err := ffi.rx2_hash(c.ctx, buf[:len(input)+8], out[:])
+		if err != .None {
+			return err
+		}
+		for i in 0 ..< 32 {
+			output.bytes[i] = out[i]
+		}
+		output.len = 32
+		return .None
+	}
+
+	d_buf := make([dynamic]u8, len(input)+8)
+	copy(d_buf[:len(input)], input)
 	for i in 0 ..< 8 {
-		buf[len(input)+i] = nonce_bytes[i]
+		d_buf[len(input)+i] = nb[i]
 	}
 	out := make([dynamic]u8, 32)
-	err := ffi.rx2_hash(c.ctx, buf[:], out[:])
+	err := ffi.rx2_hash(c.ctx, d_buf[:], out[:])
 	if err != .None {
 		return err
 	}

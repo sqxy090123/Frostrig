@@ -13,10 +13,11 @@ import fmt "core:fmt"
 		threads:      u32,
 		cpu_affinity: string,
 		cpu_priority: int,
-		no_gui:      bool,
-		bench:       bool,
-		list_algos:  bool,
-		huge_pages:  bool,
+		no_gui:       bool,
+		bench:        bool,
+		bench_count:  u64,
+		list_algos:   bool,
+		huge_pages:   bool,
 	}
 
 	default_cli_config :: proc() -> Cli_Config {
@@ -24,6 +25,7 @@ import fmt "core:fmt"
 			threads      = 1,
 			cpu_priority = 0,
 			huge_pages   = true,
+			bench_count  = 2000,
 		}
 	}
 
@@ -122,6 +124,17 @@ parse_single_flag :: proc(
 		config.no_gui = true
 	} else if arg == "--bench" {
 		config.bench = true
+	} else if arg == "--bench-count" {
+		v, ok := next_value(argv, i^)
+		if ok == false {
+			return "missing value for --bench-count"
+		}
+		n, num_ok := parse_u32(v)
+		if num_ok == false {
+			return fmt.tprintf("invalid bench count: %s", v)
+		}
+		config.bench_count = u64(n)
+		i^ += 1
 	} else if arg == "--list-algos" {
 		config.list_algos = true
 	} else if arg == "--no-huge-pages" {
