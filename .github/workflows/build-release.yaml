@@ -80,7 +80,13 @@ jobs:
       # ------------------------------------------------------------------
 
       # ------------------------------------------------------------------
-      # Fetch and build RandomX core + Keva variant + Argon2 + VerusHash
+      # RandomX + Keva static libs
+      #   RandomX and RandomX-Keva are built from source via CMake (the
+      #   .o files in the repo are x86_64 linux only; cross-arch or
+      #   future lib changes require a source build).
+      #   Argon2 / VerusHash use the pre-compiled .o files committed to
+      #   the repo (algo/argon2/*.o, algo/verushash/*.o) — no source
+      #   build step needed.
       # ------------------------------------------------------------------
       - name: Fetch RandomX source
         run: |
@@ -171,64 +177,6 @@ jobs:
           ls -lh randomx_keva_src/build/librandomx.a
 
       # ------------------------------------------------------------------
-      # Compile C algorithm modules + combined object files
-      # ------------------------------------------------------------------
-      - name: Compile C modules (RandomX variants + Argon2 + VerusHash)
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          CC="gcc"
-          CXX="g++"
-
-          # RandomX variant wrappers
-          for v in 0 wow 2 c64 v xeq; do
-            "$CC" -O2 -fPIC -Ialgo/randomx \
-              -c "algo/randomx/${v}.c" \
-              -o "algo/randomx/${v}.o"
-          done
-          # Keva variant wrapper
-          "$CC" -O2 -fPIC -Ialgo/keva -Irandomx_keva_src/src \
-            -c algo/keva/keva.c -o algo/keva/keva.o
-
-          # Argon2 (combined object via ld -r)
-          cd third_party/argon2
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/argon2.c -o /workspace/algo/argon2/argon2.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/core.c  -o /workspace/algo/argon2/core.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/opt.c   -o /workspace/algo/argon2/opt.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/blake2b.c -o /workspace/algo/argon2/blake2b.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/encoding.c -o /workspace/algo/argon2/encoding.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/thread.c -o /workspace/algo/argon2/thread.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/argon2_id.c -o /workspace/algo/argon2/argon2_id.o
-          "$CC" -O2 -fPIC -Iinclude -Isrc \
-            -c src/argon2d.c -o /workspace/algo/argon2/argon2d.o
-          cd /workspace
-          ld -r \
-            algo/argon2/argon2.o algo/argon2/core.o algo/argon2/opt.o \
-            algo/argon2/blake2b.o algo/argon2/encoding.o algo/argon2/thread.o \
-            algo/argon2/argon2_id.o algo/argon2/argon2d.o \
-            -o algo/argon2/argon2_all.o
-
-          # VerusHash (C++ combined object via ld -r)
-          for f in verushash vh_clhash_portable vh_hash haraka_portable; do
-            "$CXX" -O2 -fPIC -std=c++11 -Ialgo/verushash \
-              -c "algo/verushash/${f}.cpp" \
-              -o "algo/verushash/${f}.o"
-          done
-          ld -r \
-            algo/verushash/verushash.o algo/verushash/vh_clhash_portable.o \
-            algo/verushash/vh_hash.o algo/verushash/haraka_portable.o \
-            -o algo/verushash/verushash_all.o
-
-          echo "All C modules compiled."
-
-      # ------------------------------------------------------------------
       # Build
       # ------------------------------------------------------------------
       - name: Build ${{ matrix.mode }}
@@ -243,9 +191,10 @@ jobs:
 
           EXTRA_LINKER_FLAGS=""
           if [[ "${{ runner.os }}" == "Linux" ]]; then
+            # RandomX + Keva static libs built above
             EXTRA_LINKER_FLAGS="-lstdc++ -lpthread -ldl -lm \
-              /workspace/randomx_src/build/librandomx.a \
-              /workspace/randomx_keva_src/build/librandomx.a"
+              $(pwd)/randomx_src/build/librandomx.a \
+              $(pwd)/randomx_keva_src/build/librandomx.a"
           fi
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
