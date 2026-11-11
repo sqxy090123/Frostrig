@@ -3,11 +3,11 @@ package frostrig_ffi
 
 import c "core:c"
 
-// Argon2 variant modules (combined): algo/argon2/argon2_all.o
-// Links argon2.o + core.o + opt.o + blake2b.o + argon2_id.o + argon2d.o.
-// opt.o provides fill_segment (AVX2/SSE path); ref.o dropped to avoid
+// Argon2 variant modules (combined): algo/argon2/argon2_all.lib
+// Links argon2.obj + core.obj + opt.obj + blake2b.obj + argon2_id.obj + argon2d.obj.
+// opt.obj provides fill_segment (AVX2/SSE path); ref.obj dropped to avoid
 // duplicate fill_segment export.
-foreign import argon2_mod "../algo/argon2/argon2_all.o"
+foreign import argon2_mod "../algo/argon2/argon2_all.lib"
 
 @(default_calling_convention = "c")
 foreign argon2_mod {

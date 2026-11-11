@@ -3,13 +3,13 @@ package frostrig_ffi
 
 import c "core:c"
 
-foreign import rx0_mod "../algo/randomx/0.o"
-foreign import rxwow_mod "../algo/randomx/wow.o"
-foreign import rx2_mod "../algo/randomx/2.o"
-foreign import rxc64_mod "../algo/randomx/c64.o"
-foreign import rxv_mod "../algo/randomx/v.o"
-foreign import rxxeq_mod "../algo/randomx/xeq.o"
-foreign import rxkeva_mod "../algo/keva/keva.o"
+foreign import rx0_mod "../algo/randomx/0.obj"
+foreign import rxwow_mod "../algo/randomx/wow.obj"
+foreign import rx2_mod "../algo/randomx/2.obj"
+foreign import rxc64_mod "../algo/randomx/c64.obj"
+foreign import rxv_mod "../algo/randomx/v.obj"
+foreign import rxxeq_mod "../algo/randomx/xeq.obj"
+foreign import rxkeva_mod "../algo/keva/keva.obj"
 foreign import librandomx "../third_party/randomx/lib/windows-x86_64/librandomx.lib"
 foreign import librandomxkeva "../third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib"
 

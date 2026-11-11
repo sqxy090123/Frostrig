@@ -3,9 +3,9 @@ package frostrig_ffi
 
 import c "core:c"
 
-// VerusHash C++ modules (combined): algo/verushash/verushash_all.o
-// Links verushash.o + vh_clhash_portable.o + vh_hash.o + haraka_portable.o.
-foreign import verushash_mod "../algo/verushash/verushash_all.o"
+// VerusHash C++ modules (combined): algo/verushash/verushash_all.lib
+// Links verushash.obj + vh_clhash_portable.obj + vh_hash.obj + haraka_portable.obj.
+foreign import verushash_mod "../algo/verushash/verushash_all.lib"
 
 @(default_calling_convention = "c")
 foreign verushash_mod {

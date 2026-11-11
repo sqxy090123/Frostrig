@@ -7,6 +7,10 @@ workspace
 
 # Vendored static libraries (downloaded via script, not committed)
 third_party/
+# Argon2 C source is committed (needed by both Linux and Windows CI builds)
+!third_party/argon2/
+third_party/argon2/*.o
+third_party/argon2/*.obj
 
 # Runtime log produced by errhandler.odin (always compiled in)
 errhandler.log
