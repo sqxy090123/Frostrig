@@ -87,7 +87,7 @@ frostrig_rx_wow_ctx *frostrig_rx_wow_create(int flags,
         return NULL;
     }
 
-    frostrig_rx_wow_ctx *ctx = calloc(1, sizeof(*ctx));
+    frostrig_rx_wow_ctx *ctx = (frostrig_rx_wow_ctx *)calloc(1, sizeof(*ctx));
     if (ctx == NULL) {
         randomx_destroy_vm(vm);
         randomx_release_cache(cache);

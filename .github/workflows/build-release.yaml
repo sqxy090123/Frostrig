@@ -68,15 +68,15 @@ jobs:
           if [[ "${{ matrix.os }}" == "linux" ]]; then
             curl -fSL --retry 3 -o odin.tar.gz \
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-dev-2026-11.tar.gz"
-            tar xzf odin.tar.gz -C /tmp/
-            ODIR="$(find /tmp -maxdepth 2 -type d -name 'odin-*' | head -n 1)"
-            echo "${ODIR}" >> "${GITHUB_PATH}"
+            tar xzf odin.tar.gz -C .
+            ODIR="$(ls -d odin-* | head -n 1)"
+            echo "${PWD}/${ODIR}" >> "${GITHUB_PATH}"
           else
             curl -fSL --retry 3 -o odin.zip \
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-dev-2026-11.zip"
             7z x odin.zip -o./odin-pkg -y >/dev/null
-            ODIR="$(find odin-pkg -maxdepth 2 -type d -name 'odin-*' | head -n 1)"
-            echo "$PWD/${ODIR}" >> GITHUB_PATH
+            ODIR="$(ls -d odin-pkg/odin-* 2>/dev/null | head -n 1)"
+            echo "${PWD}/${ODIR}" >> GITHUB_PATH
           fi
           odin version || echo "odin not found on PATH"
 
