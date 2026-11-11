@@ -71,21 +71,26 @@ jobs:
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-dev-2026-11.tar.gz"
             tar xzf odin.tar.gz -C .
             ODIR="$(ls -d odin-* | head -n 1)"
-            echo "${PWD}/${ODIR}" >> "${GITHUB_PATH}"
-            echo "ODIN_DIR=${ODIR}" >> "${GITHUB_ENV}"
+            echo "ODIN_DIR=${PWD}/${ODIR}" >> "${GITHUB_ENV}"
+            "${PWD}/${ODIR}/odin" version
           else
             curl -fSL --retry 3 -o odin.zip \
               "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-dev-2026-11.zip"
-            powershell -Command "Expand-Archive -Force -Path odin.zip -DestinationPath .\odin-pkg"
-            ODIR="$(ls -d odin-pkg/odin-* 2>/dev/null | head -n 1)"
+            # PowerShell Expand-Archive is very slow for large zips.
+            # Use 7z if available, otherwise fall back to PowerShell.
+            if command -v 7z &>/dev/null; then
+              7z x -y odin.zip -o"odin-pkg"
+            else
+              powershell -Command "Expand-Archive -Force -Path odin.zip -DestinationPath .\odin-pkg"
+            fi
+            # Zip extracts to odin-pkg/odin-windows-amd64-* or odin-pkg/dist/
+            ODIR="$(find odin-pkg -maxdepth 1 -type d -name 'odin-*' 2>/dev/null | head -n 1)"
             if [ -z "${ODIR}" ]; then ODIR="odin-pkg/dist"; fi
-            ODIR="${PWD}/${ODIR}"
-            echo "ODIN_DIR=${ODIR}" >> "${GITHUB_ENV}"
-            echo "${ODIR}" >> "${GITHUB_PATH}"
-          fi
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            "${ODIR}/odin" version
-          else
+            echo "ODIN_DIR=${PWD}/${ODIR}" >> "${GITHUB_ENV}"
+            echo "${PWD}/${ODIR}" >> "${GITHUB_PATH}"
+            echo "${PWD}/${ODIR}/bin" >> "${GITHUB_PATH}"
+            echo "--- Odin directory: ${ODIR}"
+            ls -la "${ODIR}"
             "${ODIR}/odin.exe" --version
           fi
 
@@ -337,6 +342,8 @@ jobs:
           done
 
           # Argon2: combine third_party/argon2/src/*.c + algo/argon2/*.c
+          # Remove committed pre-built ELF archives before creating fresh ones.
+          rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
           echo "  -> algo/argon2/argon2_all.o"
           mkdir -p /tmp/argon2_objs
           for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
@@ -383,6 +390,11 @@ jobs:
             VCVARS="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
           fi
           echo "vcvars64.bat: ${VCVARS}"
+
+          # Remove committed pre-built ELF archives (irrelevant on Windows,
+          # but keep the tree clean).
+          rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
+          rm -f algo/randomx/*.o algo/keva/*.o
 
           # Compile a C file with MSVC
           ccl() {

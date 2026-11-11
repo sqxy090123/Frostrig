@@ -271,7 +271,6 @@ jobs:
             randomx_keva_src/build/librandomx.a \
             -lstdc++ -lm \
             -Wl,--gc-sections \
-            -Wl,--gc-keep-exported \
             -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
 
