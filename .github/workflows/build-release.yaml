@@ -237,10 +237,13 @@ jobs:
           #define RANDOMX_FREQ_CBRANCH       25
           #define RANDOMX_FREQ_CFROUND        1
           #define RANDOMX_FREQ_ISTORE        16
-          #define RANDOMX_FREQ_NOP            0
-          EOF
-            cmake -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build randomx_keva_src/build --target randomx -j"$(nproc)"
+           #define RANDOMX_FREQ_NOP            0
+           EOF
+           sed -i 's/RANDOMX_ARGON_SALT TEXTEQU <"RandomX\\x03">/RANDOMX_ARGON_SALT TEXTEQU <"RandomKV\\x01">/' randomx_keva_src/src/asm/configuration.asm
+           sed -i 's/RANDOMX_SCRATCHPAD_L3 EQU 2097152t/RANDOMX_SCRATCHPAD_L3 EQU 1048576t/' randomx_keva_src/src/asm/configuration.asm
+           sed -i 's/RANDOMX_SCRATCHPAD_L2 EQU 262144t/RANDOMX_SCRATCHPAD_L2 EQU 131072t/' randomx_keva_src/src/asm/configuration.asm
+           cmake -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release
+           cmake --build randomx_keva_src/build --target randomx -j"$(nproc)"
           ls -lh randomx_keva_src/build/librandomx.a
 
       - name: Build RandomX-Keva static lib (Windows)
@@ -311,26 +314,29 @@ jobs:
           #define RANDOMX_FREQ_CFROUND        1
           #define RANDOMX_FREQ_ISTORE        16
           #define RANDOMX_FREQ_NOP            0
-          EOF
-            VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-            VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
-            if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
-              for p in \
-                "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
-                "C:/Program Files/Microsoft Visual Studio/2022/Community" \
-                "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
-                "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
-                "C:/Program Files/Microsoft Visual Studio/2025/Community" \
-                "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
-                "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
-                "C:/Program Files/Microsoft Visual Studio/18/Community" \
-                "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
-                if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
-              done
-            fi
-            VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
-            WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
-            mkdir -p "${WINTMP}"
+           EOF
+           sed -i 's/RANDOMX_ARGON_SALT TEXTEQU <"RandomX\\x03">/RANDOMX_ARGON_SALT TEXTEQU <"RandomKV\\x01">/' randomx_keva_src/src/asm/configuration.asm
+           sed -i 's/RANDOMX_SCRATCHPAD_L3 EQU 2097152t/RANDOMX_SCRATCHPAD_L3 EQU 1048576t/' randomx_keva_src/src/asm/configuration.asm
+           sed -i 's/RANDOMX_SCRATCHPAD_L2 EQU 262144t/RANDOMX_SCRATCHPAD_L2 EQU 131072t/' randomx_keva_src/src/asm/configuration.asm
+           VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+           VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
+           if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
+             for p in \
+               "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
+               "C:/Program Files/Microsoft Visual Studio/2022/Community" \
+               "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
+               "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
+               "C:/Program Files/Microsoft Visual Studio/2025/Community" \
+               "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
+               "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
+               "C:/Program Files/Microsoft Visual Studio/18/Community" \
+               "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
+               if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
+             done
+           fi
+           VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
+           WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
+           mkdir -p "${WINTMP}"
             printf '@echo off\ncall "%s"\nif errorlevel 1 (echo vcvars64 failed & exit /b 1)\nset CMAKE_GENERATOR=Ninja\ncmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release\nif errorlevel 1 (echo cmake configure failed & exit /b 1)\ncmake --build randomx_keva_src/build --target randomx -j 8\nif errorlevel 1 (echo cmake build failed & exit /b 1)\ndir randomx_keva_src\\build\\randomx.lib\n' "${VCVARS}" > "${WINTMP}/build_keva.bat"
             cmd //c "${WINTMP}/build_keva.bat"
 
