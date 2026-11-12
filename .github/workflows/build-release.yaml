@@ -167,14 +167,23 @@ jobs:
           # Build a batch script that calls vcvars64 then prints env vars
           VCVARS_FWD="${VCVARS//\\//}"
           printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv.bat
-          # Parse the KEY=VALUE output into bash env vars
+          # Parse the KEY=VALUE output into bash env vars.
+          # PATH is merged (MSVC first) so that cmake/git/etc remain available.
+          ORIG_PATH="${PATH}"
+          MSVC_PATH=""
           while IFS='=' read -r key value; do
             case "${key}" in
-              INCLUDE|LIB|PATH|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
+              PATH)
+                MSVC_PATH="${value}"
+                ;;
+              INCLUDE|LIB|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
                 export "${key}=${value}"
                 ;;
             esac
           done < <(cmd //c /tmp/get_msenv.bat)
+          if [[ -n "${MSVC_PATH}" ]]; then
+            export "PATH=${MSVC_PATH}:${ORIG_PATH}"
+          fi
           echo "cl: $(which cl 2>/dev/null || echo NOT_FOUND)"
           cmake -G Ninja -S randomx_src -B randomx_src/build \
             -DCMAKE_BUILD_TYPE=Release
@@ -341,13 +350,21 @@ jobs:
             VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
             VCVARS_FWD="${VCVARS//\\//}"
             printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv_keva.bat
+            ORIG_PATH="${PATH}"
+            MSVC_PATH=""
             while IFS='=' read -r key value; do
               case "${key}" in
-                INCLUDE|LIB|PATH|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
+                PATH)
+                  MSVC_PATH="${value}"
+                  ;;
+                INCLUDE|LIB|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
                   export "${key}=${value}"
                   ;;
               esac
             done < <(cmd //c /tmp/get_msenv_keva.bat)
+            if [[ -n "${MSVC_PATH}" ]]; then
+              export "PATH=${MSVC_PATH}:${ORIG_PATH}"
+            fi
             cmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build \
               -DCMAKE_BUILD_TYPE=Release
             cmake --build randomx_keva_src/build --target randomx -j 8
@@ -474,13 +491,21 @@ jobs:
           # Build batch helper for MSVC env
           VCVARS_FWD="${VCVARS//\\//}"
           printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv_ccl.bat
+          ORIG_PATH="${PATH}"
+          MSVC_PATH=""
           while IFS='=' read -r key value; do
             case "${key}" in
-              INCLUDE|LIB|PATH|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
+              PATH)
+                MSVC_PATH="${value}"
+                ;;
+              INCLUDE|LIB|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
                 export "${key}=${value}"
                 ;;
             esac
           done < <(cmd //c /tmp/get_msenv_ccl.bat)
+          if [[ -n "${MSVC_PATH}" ]]; then
+            export "PATH=${MSVC_PATH}:${ORIG_PATH}"
+          fi
           echo "cl: $(which cl 2>/dev/null || echo NOT_FOUND)"
 
           # Compile a C file with MSVC
