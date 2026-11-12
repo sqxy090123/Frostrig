@@ -261,8 +261,31 @@ jobs:
           CXX="${NDK_TRIPLE}-clang++"
           mkdir -p build
 
-          # Version script: export frostrig_* symbols so --gc-sections
-          # does not strip them.
+          # Force-link file: references every frostrig_*_create symbol so
+          # that --gc-sections does not strip them.  NDK's lld does not
+          # support --gc-keep-exported, so we must keep the symbols live
+          # through explicit references.
+          cat > /tmp/frostrig_force_link.c <<'FORCELINK'
+          extern void *frostrig_rx0_create(int, const void *, size_t);
+          extern void *frostrig_rx_wow_create(int, const void *, size_t);
+          extern void *frostrig_rx2_create(int, const void *, size_t);
+          extern void *frostrig_rx_c64_create(int, const void *, size_t);
+          extern void *frostrig_rx_v_create(int, const void *, size_t);
+          extern void *frostrig_rx_xeq_create(int, const void *, size_t);
+          extern void *frostrig_rx_keva_create(int, const void *, size_t);
+          __attribute__((used, retain))
+          const void *frostrig_all_creates[] = {
+            (void *)frostrig_rx0_create,
+            (void *)frostrig_rx_wow_create,
+            (void *)frostrig_rx2_create,
+            (void *)frostrig_rx_c64_create,
+            (void *)frostrig_rx_v_create,
+            (void *)frostrig_rx_xeq_create,
+            (void *)frostrig_rx_keva_create,
+          };
+          FORCELINK
+
+          # Version script: export frostrig_* symbols, hide everything else.
           cat > /tmp/frostrig.exports <<'EOF'
           FROSTRIG_RANDOMX_1.0 {
             global:
@@ -282,6 +305,7 @@ jobs:
             algo/randomx/v.c \
             algo/randomx/xeq.c \
             algo/keva/keva.c \
+            /tmp/frostrig_force_link.c \
             randomx_src/build/librandomx.a \
             randomx_keva_src/build/librandomx.a \
             -lstdc++ -lm \
@@ -290,10 +314,10 @@ jobs:
             -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
 
-      # ------------------------------------------------------------------
-      # Verify the artefact is a valid ELF for the target architecture and
-      # that all 6 variant prefixes are exported.
-      # ------------------------------------------------------------------
+       # ------------------------------------------------------------------
+       # Verify the artefact is a valid ELF for the target architecture and
+       # that all 6 variant prefixes are exported.
+       # ------------------------------------------------------------------
       - name: Verify exported symbols
         run: |
           set -euo pipefail
