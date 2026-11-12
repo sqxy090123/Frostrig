@@ -142,12 +142,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Use Ninja + MSVC toolchain directly (avoid CMake VS-instance
-          # detection which can fail on current windows-latest images).
+          # Use Ninja + MSVC toolchain. Source vcvars64.bat to set up
+          # INCLUDE/LIB/PATH for cl.exe, then export the env into bash.
           VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
           VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
           echo "VS install: ${VSINSTALL}"
-          # Fall back to known paths if vswhere finds nothing
           if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
             for p in \
               "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
@@ -155,18 +154,30 @@ jobs:
               "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
               "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
               "C:/Program Files/Microsoft Visual Studio/2025/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools"; do
+              "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
+              "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
+              "C:/Program Files/Microsoft Visual Studio/18/Community" \
+              "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
               if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
             done
           fi
           echo "Using VS: ${VSINSTALL}"
-          # Add MSVC bin + ninja to PATH for this shell
-          VCTOOLS="$(ls -d "${VSINSTALL}/VC/Tools/MSVC/"*/bin/Hostx64/x64 2>/dev/null | tail -n1)"
-          echo "VCTOOLS: ${VCTOOLS}"
-          export PATH="${VCTOOLS}:${VSINSTALL}/Common7/Tools/bin:${PATH}"
+          VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
+          echo "vcvars: ${VCVARS}"
+          # Build a batch script that calls vcvars64 then prints env vars
+          VCVARS_FWD="${VCVARS//\\//}"
+          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv.bat
+          # Parse the KEY=VALUE output into bash env vars
+          while IFS='=' read -r key value; do
+            case "${key}" in
+              INCLUDE|LIB|PATH|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
+                export "${key}=${value}"
+                ;;
+            esac
+          done < <(cmd //c /tmp/get_msenv.bat)
+          echo "cl: $(which cl 2>/dev/null || echo NOT_FOUND)"
           cmake -G Ninja -S randomx_src -B randomx_src/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+            -DCMAKE_BUILD_TYPE=Release
           cmake --build randomx_src/build --target randomx -j 8
           ls -lh randomx_src/build/randomx.lib
 
@@ -310,27 +321,37 @@ jobs:
           #define RANDOMX_FREQ_CFROUND        1
           #define RANDOMX_FREQ_ISTORE        16
           #define RANDOMX_FREQ_NOP            0
-           EOF
-           VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-           VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
-           if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
-             for p in \
-               "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
-               "C:/Program Files/Microsoft Visual Studio/2022/Community" \
-               "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
-               "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
-               "C:/Program Files/Microsoft Visual Studio/2025/Community" \
-               "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools"; do
-               if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
-             done
-           fi
-           VCTOOLS="$(ls -d "${VSINSTALL}/VC/Tools/MSVC/"*/bin/Hostx64/x64 2>/dev/null | tail -n1)"
-           export PATH="${VCTOOLS}:${VSINSTALL}/Common7/Tools/bin:${PATH}"
-           cmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build \
-             -DCMAKE_BUILD_TYPE=Release \
-             -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
-           cmake --build randomx_keva_src/build --target randomx -j 8
-           ls -lh randomx_keva_src/build/randomx.lib
+            EOF
+            VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+            VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
+            if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
+              for p in \
+                "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
+                "C:/Program Files/Microsoft Visual Studio/2022/Community" \
+                "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
+                "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
+                "C:/Program Files/Microsoft Visual Studio/2025/Community" \
+                "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
+                "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
+                "C:/Program Files/Microsoft Visual Studio/18/Community" \
+                "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
+                if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
+              done
+            fi
+            VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
+            VCVARS_FWD="${VCVARS//\\//}"
+            printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv_keva.bat
+            while IFS='=' read -r key value; do
+              case "${key}" in
+                INCLUDE|LIB|PATH|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
+                  export "${key}=${value}"
+                  ;;
+              esac
+            done < <(cmd //c /tmp/get_msenv_keva.bat)
+            cmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build \
+              -DCMAKE_BUILD_TYPE=Release
+            cmake --build randomx_keva_src/build --target randomx -j 8
+            ls -lh randomx_keva_src/build/randomx.lib
 
       # ------------------------------------------------------------------
       # Link third_party static libs
@@ -425,17 +446,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Locate vcvars64.bat
-          VCVARS="$(cmd //c 'echo "%VSINSTALLDIR%" 2>nul')/VC/Auxiliary/Build/vcvars64.bat"
-          if [[ ! -f "${VCVARS}" ]]; then
-            VCVARS="C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Auxiliary/Build/vcvars64.bat"
+          # Locate vcvars64.bat (same vswhere approach as the RandomX steps)
+          VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
+          if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
+            for p in \
+              "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
+              "C:/Program Files/Microsoft Visual Studio/2022/Community" \
+              "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
+              "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
+              "C:/Program Files/Microsoft Visual Studio/2025/Community" \
+              "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
+              "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
+              "C:/Program Files/Microsoft Visual Studio/18/Community" \
+              "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
+              if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
+            done
           fi
-          if [[ ! -f "${VCVARS}" ]]; then
-            VCVARS="C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvars64.bat"
-          fi
-          if [[ ! -f "${VCVARS}" ]]; then
-            VCVARS="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
-          fi
+          VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
           echo "vcvars64.bat: ${VCVARS}"
 
           # Remove committed pre-built ELF archives (irrelevant on Windows,
@@ -443,13 +471,25 @@ jobs:
           rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
           rm -f algo/randomx/*.o algo/keva/*.o
 
+          # Build batch helper for MSVC env
+          VCVARS_FWD="${VCVARS//\\//}"
+          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv_ccl.bat
+          while IFS='=' read -r key value; do
+            case "${key}" in
+              INCLUDE|LIB|PATH|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
+                export "${key}=${value}"
+                ;;
+            esac
+          done < <(cmd //c /tmp/get_msenv_ccl.bat)
+          echo "cl: $(which cl 2>/dev/null || echo NOT_FOUND)"
+
           # Compile a C file with MSVC
           ccl() {
-            cmd //c "call '${VCVARS}' && cl /nologo /O2 /c ${*}"
+            cl /nologo /O2 /c "$@"
           }
           # Compile a C++ file with MSVC
           cxxcl() {
-            cmd //c "call '${VCVARS}' && cl /nologo /O2 /std:c++17 /c ${*}"
+            cl /nologo /O2 /std:c++17 /c "$@"
           }
 
           # RandomX variant wrappers
@@ -474,7 +514,7 @@ jobs:
             algo/argon2/argon2_id.c /Fo"argon2_objs/argon2_id.obj"
           ccl /Ialgo/argon2 /Ithird_party/argon2/include /Ithird_party/argon2/src \
             algo/argon2/argon2d.c /Fo"argon2_objs/argon2d.obj"
-          cmd //c "call '${VCVARS}' && lib /nologo /out:algo/argon2/argon2_all.lib argon2_objs/*.obj"
+            lib /nologo /out:algo/argon2/argon2_all.lib argon2_objs/*.obj
           rm -rf argon2_objs
 
           # VerusHash: C + C++ sources
@@ -484,7 +524,7 @@ jobs:
           cxxcl algo/verushash/verushash.cpp /Fo"vh_objs/vh.obj"
           cxxcl algo/verushash/vh_clhash_portable.cpp /Fo"vh_objs/vh_cl.obj"
           cxxcl algo/verushash/vh_hash.cpp /Fo"vh_objs/vh_h.obj"
-          cmd //c "call '${VCVARS}' && lib /nologo /out:algo/verushash/verushash_all.lib vh_objs/*.obj"
+            lib /nologo /out:algo/verushash/verushash_all.lib vh_objs/*.obj
           rm -rf vh_objs
 
           echo "C modules compiled (Windows)"
