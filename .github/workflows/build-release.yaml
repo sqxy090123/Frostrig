@@ -120,6 +120,7 @@ jobs:
       #   Windows: build/Release/randomx.lib
       # ------------------------------------------------------------------
       - name: Fetch RandomX source
+        shell: bash
         run: |
           set -euo pipefail
           curl -fSL --retry 3 -o randomx.tar.gz \
