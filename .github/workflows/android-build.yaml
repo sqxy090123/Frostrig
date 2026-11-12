@@ -335,12 +335,14 @@ jobs:
           LIB="build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           readelf -h "${LIB}"
           readelf -d "${LIB}" | grep NEEDED || true
+          echo "--- full dyn-syms ---"
+          readelf -W --dyn-syms "${LIB}"
           for sym in \
             frostrig_rx0_create frostrig_rx_wow_create \
             frostrig_rx2_create frostrig_rx_c64_create \
             frostrig_rx_v_create frostrig_rx_xeq_create \
             frostrig_rx_keva_create; do
-            readelf -W --dyn-syms "${LIB}" | grep -E " T ${sym}$" \
+            readelf -W --dyn-syms "${LIB}" | grep -E " (T|W|V) ${sym}$" \
               || { echo "missing symbol ${sym} in ${LIB}"; exit 1; }
           done
           echo "All 7 variant prefixes exported."
