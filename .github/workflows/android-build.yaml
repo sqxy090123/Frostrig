@@ -266,6 +266,7 @@ jobs:
           # support --gc-keep-exported, so we must keep the symbols live
           # through explicit references.
           cat > /tmp/frostrig_force_link.c <<'FORCELINK'
+          #include <stddef.h>
           extern void *frostrig_rx0_create(int, const void *, size_t);
           extern void *frostrig_rx_wow_create(int, const void *, size_t);
           extern void *frostrig_rx2_create(int, const void *, size_t);
