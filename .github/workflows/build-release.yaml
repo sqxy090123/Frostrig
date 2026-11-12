@@ -239,7 +239,7 @@ jobs:
           #define RANDOMX_FREQ_ISTORE        16
           #define RANDOMX_FREQ_NOP            0
           EOF
-          cmake -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release
+            cmake -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release
           cmake --build randomx_keva_src/build --target randomx -j"$(nproc)"
           ls -lh randomx_keva_src/build/librandomx.a
 
@@ -311,7 +311,7 @@ jobs:
           #define RANDOMX_FREQ_CFROUND        1
           #define RANDOMX_FREQ_ISTORE        16
           #define RANDOMX_FREQ_NOP            0
-            EOF
+          EOF
             VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
             VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
             if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
