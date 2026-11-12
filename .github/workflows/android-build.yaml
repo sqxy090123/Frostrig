@@ -53,7 +53,7 @@ jobs:
 
     env:
       NDK_VERSION: "r25c"
-      ANDROID_ARCH: ${{ inputs.architecture }}
+      ANDROID_ARCH: ${{ inputs.architecture || 'aarch64' }}
       NDK_TRIPLE: >-
         ${{
           inputs.architecture == 'aarch64'
