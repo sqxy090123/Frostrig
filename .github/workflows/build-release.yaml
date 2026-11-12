@@ -142,8 +142,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Use Ninja + MSVC toolchain. Source vcvars64.bat to set up
-          # INCLUDE/LIB/PATH for cl.exe, then export the env into bash.
+          # Locate vcvars64.bat
           VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
           VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
           echo "VS install: ${VSINSTALL}"
@@ -164,44 +163,13 @@ jobs:
           echo "Using VS: ${VSINSTALL}"
           VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
           echo "vcvars: ${VCVARS}"
-          # Build a batch script that calls vcvars64 then prints env vars
-          VCVARS_FWD="${VCVARS//\\//}"
+          # Write a batch script that sets up MSVC env then runs CMake + Ninja.
+          # Running in native cmd context ensures cl/link see correct
+          # INCLUDE/LIB/WindowsSdk paths.
           WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
           mkdir -p "${WINTMP}"
-          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > "${WINTMP}/get_msenv.bat"
-          # Parse the KEY=VALUE output into bash env vars.
-          # PATH is merged (MSVC first) so that cmake/git/etc remain available.
-          ORIG_PATH="${PATH}"
-          MSVC_PATH=""
-          MSVC_BAT_OUT="$(cmd //c "${WINTMP}/get_msenv.bat" 2>/dev/null)"
-          echo "MSVC bat output (first 500 chars): ${MSVC_BAT_OUT:0:500}"
-          while IFS='=' read -r key value; do
-            case "${key}" in
-              PATH)
-                MSVC_PATH="${value}"
-                ;;
-              INCLUDE|LIB|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
-                export "${key}=${value}"
-                ;;
-            esac
-          done <<< "${MSVC_BAT_OUT}"
-          if [[ -n "${MSVC_PATH}" ]]; then
-            # Convert Windows PATH (;-separated, backslash) to MSYS PATH
-            # (:-separated, forward-slash). Each entry is a Windows path
-            # like C:\Program Files\...\bin. MSYS2 provides cygpath to
-            # convert to the native POSIX-style path.
-            MSYS_MSVC_PATH="$(echo "${MSVC_PATH}" | tr ';' '\n' | while read -r p; do
-              [[ -z "${p}" ]] && continue
-              cygpath -u "${p}" 2>/dev/null || echo "${p}"
-            done | tr '\n' ':' | sed 's/:$//')"
-            echo "MSYS_MSVC_PATH (first 200 chars): ${MSYS_MSVC_PATH:0:200}"
-            export "PATH=${MSYS_MSVC_PATH}:${ORIG_PATH}"
-          fi
-          echo "cl: $(which cl 2>/dev/null || echo NOT_FOUND)"
-          cmake -G Ninja -S randomx_src -B randomx_src/build \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build randomx_src/build --target randomx -j 8
-          ls -lh randomx_src/build/randomx.lib
+          printf '@echo off\ncall "%s"\nif errorlevel 1 (echo vcvars64 failed & exit /b 1)\nset CMAKE_GENERATOR=Ninja\ncmake -G Ninja -S randomx_src -B randomx_src/build -DCMAKE_BUILD_TYPE=Release\nif errorlevel 1 (echo cmake configure failed & exit /b 1)\ncmake --build randomx_src/build --target randomx -j 8\nif errorlevel 1 (echo cmake build failed & exit /b 1)\ndir randomx_src\\build\\randomx.lib\n' "${VCVARS}" > "${WINTMP}/build_randomx.bat"
+          cmd //c "${WINTMP}/build_randomx.bat"
 
       - name: Build RandomX-Keva static lib
         if: runner.os == 'Linux'
@@ -361,34 +329,10 @@ jobs:
               done
             fi
             VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
-            VCVARS_FWD="${VCVARS//\\//}"
             WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
             mkdir -p "${WINTMP}"
-            printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > "${WINTMP}/get_msenv_keva.bat"
-            ORIG_PATH="${PATH}"
-            MSVC_PATH=""
-            MSVC_BAT_OUT="$(cmd //c "${WINTMP}/get_msenv_keva.bat" 2>/dev/null)"
-            while IFS='=' read -r key value; do
-              case "${key}" in
-                PATH)
-                  MSVC_PATH="${value}"
-                  ;;
-                INCLUDE|LIB|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
-                  export "${key}=${value}"
-                  ;;
-              esac
-            done <<< "${MSVC_BAT_OUT}"
-            if [[ -n "${MSVC_PATH}" ]]; then
-              MSYS_MSVC_PATH="$(echo "${MSVC_PATH}" | tr ';' '\n' | while read -r p; do
-                [[ -z "${p}" ]] && continue
-                cygpath -u "${p}" 2>/dev/null || echo "${p}"
-              done | tr '\n' ':' | sed 's/:$//')"
-              export "PATH=${MSYS_MSVC_PATH}:${ORIG_PATH}"
-            fi
-            cmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build \
-              -DCMAKE_BUILD_TYPE=Release
-            cmake --build randomx_keva_src/build --target randomx -j 8
-            ls -lh randomx_keva_src/build/randomx.lib
+            printf '@echo off\ncall "%s"\nif errorlevel 1 (echo vcvars64 failed & exit /b 1)\nset CMAKE_GENERATOR=Ninja\ncmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release\nif errorlevel 1 (echo cmake configure failed & exit /b 1)\ncmake --build randomx_keva_src/build --target randomx -j 8\nif errorlevel 1 (echo cmake build failed & exit /b 1)\ndir randomx_keva_src\\build\\randomx.lib\n' "${VCVARS}" > "${WINTMP}/build_keva.bat"
+            cmd //c "${WINTMP}/build_keva.bat"
 
       # ------------------------------------------------------------------
       # Link third_party static libs
@@ -517,136 +461,50 @@ jobs:
           rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
           rm -f algo/randomx/*.o algo/keva/*.o
 
-          # Build batch helper for MSVC env
-          VCVARS_FWD="${VCVARS//\\//}"
+          # Write a batch script that calls vcvars64 then compiles all
+          # C/C++ modules with MSVC. Running in native cmd context ensures
+          # cl.exe and lib.exe see the correct Windows INCLUDE/LIB env vars.
           WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
           mkdir -p "${WINTMP}"
-          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > "${WINTMP}/get_msenv_ccl.bat"
-          ORIG_PATH="${PATH}"
-          MSVC_PATH=""
-          MSVC_BAT_OUT="$(cmd //c "${WINTMP}/get_msenv_ccl.bat" 2>/dev/null)"
-          while IFS='=' read -r key value; do
-            case "${key}" in
-              PATH)
-                MSVC_PATH="${value}"
-                ;;
-              INCLUDE|LIB|VCToolsInstallDir|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion)
-                export "${key}=${value}"
-                ;;
-            esac
-          done <<< "${MSVC_BAT_OUT}"
-          if [[ -n "${MSVC_PATH}" ]]; then
-            MSYS_MSVC_PATH="$(echo "${MSVC_PATH}" | tr ';' '\n' | while read -r p; do
-              [[ -z "${p}" ]] && continue
-              cygpath -u "${p}" 2>/dev/null || echo "${p}"
-            done | tr '\n' ':' | sed 's/:$//')"
-            export "PATH=${MSYS_MSVC_PATH}:${ORIG_PATH}"
-          fi
-          echo "cl: $(which cl 2>/dev/null || echo NOT_FOUND)"
-
-          # Detect available compiler and define tool functions.
-          # ccl  INCLUDE_DIRS... -I flags are MSVC-style (/I) or gcc-style (-I)
-          # The simplest: define ccl/cxxcl that take -I dir1 -I dir2 ... -o out file
-          # and translate internally.
-          if command -v cl &>/dev/null; then
-            ccl() {
-              local incs=() out=""
-              shift 0  # consume all args; we parse them
-              local src=""
-              for arg in "$@"; do
-                case "${arg}" in
-                  -I*) incs+=("/I${arg:2}") ;;
-                  -o*) out="${arg:2}" ;;
-                  *)  src="${arg}" ;;
-                esac
-              done
-              cl /nologo /O2 /c "${incs[@]}" "${src}" /Fo"${out}"
-            }
-            cxxcl() {
-              local incs=() out=""
-              local src=""
-              for arg in "$@"; do
-                case "${arg}" in
-                  -I*) incs+=("/I${arg:2}") ;;
-                  -o*) out="${arg:2}" ;;
-                  *)  src="${arg}" ;;
-                esac
-              done
-              cl /nologo /O2 /std:c++17 /c "${incs[@]}" "${src}" /Fo"${out}"
-            }
-            ARCH() {
-              local out="$1"; shift
-              lib /nologo /out:"${out}" "$@"
-            }
-            OBJ_EXT=".obj"
-            echo "Using MSVC cl"
-          else
-            ccl() {
-              local incs=() out=""
-              local src=""
-              for arg in "$@"; do
-                case "${arg}" in
-                  -I*) incs+=("-I${arg:2}") ;;
-                  -o*) out="${arg:2}" ;;
-                  *)  src="${arg}" ;;
-                esac
-              done
-              x86_64-w64-mingw32-gcc -O2 -c "${incs[@]}" "${src}" -o "${out}"
-            }
-            cxxcl() {
-              local incs=() out=""
-              local src=""
-              for arg in "$@"; do
-                case "${arg}" in
-                  -I*) incs+=("-I${arg:2}") ;;
-                  -o*) out="${arg:2}" ;;
-                  *)  src="${arg}" ;;
-                esac
-              done
-              x86_64-w64-mingw32-g++ -O2 -std=c++17 -c "${incs[@]}" "${src}" -o "${out}"
-            }
-            ARCH() {
-              local out="$1"; shift
-              x86_64-w64-mingw32-gcc-ar rcs "${out}" "$@"
-            }
-            OBJ_EXT=".o"
-            echo "Using MinGW gcc/g++"
-          fi
-
-          # RandomX variant wrappers
-          for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c \
-                   algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c \
-                   algo/keva/keva.c; do
-            O="${f%.c}${OBJ_EXT}"
-            echo "  -> ${O}"
-            ccl -Ialgo/randomx -Ialgo/keva -o "${O}" "${f}"
-          done
-
-          # Argon2: combine third_party/argon2/src/*.c + algo/argon2/*.c
-          echo "  -> algo/argon2/argon2_all.lib"
-          mkdir -p argon2_objs
-          for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
-                   third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
-                   third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
-            B=$(basename "${f}" .c)
-            ccl -Ithird_party/argon2/include -Ithird_party/argon2/src -o "argon2_objs/${B}${OBJ_EXT}" "${f}"
-          done
-          ccl -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
-            -o "argon2_objs/argon2_id${OBJ_EXT}" algo/argon2/argon2_id.c
-          ccl -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
-            -o "argon2_objs/argon2d${OBJ_EXT}" algo/argon2/argon2d.c
-          ARCH "algo/argon2/argon2_all.lib" argon2_objs/*${OBJ_EXT}
-          rm -rf argon2_objs
-
-          # VerusHash: C + C++ sources
-          echo "  -> algo/verushash/verushash_all.lib"
-          mkdir -p vh_objs
-          ccl -o "vh_objs/haraka${OBJ_EXT}" algo/verushash/haraka_portable.c
-          cxxcl -o "vh_objs/vh${OBJ_EXT}" algo/verushash/verushash.cpp
-          cxxcl -o "vh_objs/vh_cl${OBJ_EXT}" algo/verushash/vh_clhash_portable.cpp
-          cxxcl -o "vh_objs/vh_h${OBJ_EXT}" algo/verushash/vh_hash.cpp
-          ARCH "algo/verushash/verushash_all.lib" vh_objs/*${OBJ_EXT}
-          rm -rf vh_objs
+          BAT="${WINTMP}/compile_c_modules.bat"
+          {
+          echo '@echo off'
+          echo 'call "VCVARS_PLACEHOLDER"'
+          echo 'if errorlevel 1 (echo vcvars64 failed &amp; exit /b 1)'
+          echo ''
+          echo 'REM RandomX variant wrappers'
+          echo 'for %%f in (algo\\randomx\\0.c algo\\randomx\\wow.c algo\\randomx\\2.c algo\\randomx\\c64.c algo\\randomx\\v.c algo\\randomx\\xeq.c algo\\keva\\keva.c) do ('
+          echo '  echo  -- %%f'
+          echo '  cl /nologo /O2 /c /Ialgo\\randomx /Ialgo\\keva "%%f" /Fo"%%~nf.obj"'
+          echo ')'
+          echo ''
+          echo 'REM Argon2'
+          echo 'echo  -- algo/argon2/argon2_all.lib'
+          echo 'mkdir argon2_objs 2&gt;nul'
+          echo 'for %%f in (third_party\\argon2\\src\\argon2.c third_party\\argon2\\src\\blake2b.c third_party\\argon2\\src\\core.c third_party\\argon2\\src\\encoding.c third_party\\argon2\\src\\opt.c third_party\\argon2\\src\\thread.c) do ('
+          echo '  cl /nologo /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src "%%f" /Fo"argon2_objs\\%%~nf.obj"'
+          echo ')'
+          echo 'cl /nologo /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2_id.c /Fo"argon2_objs\\argon2_id.obj"'
+          echo 'cl /nologo /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2d.c /Fo"argon2_objs\\argon2d.obj"'
+          echo 'lib /nologo /out:algo\\argon2\\argon2_all.lib argon2_objs\\*.obj'
+          echo 'rmdir /s /q argon2_objs'
+          echo ''
+          echo 'REM VerusHash'
+          echo 'echo  -- algo/verushash/verushash_all.lib'
+          echo 'mkdir vh_objs 2&gt;nul'
+          echo 'cl /nologo /O2 /c algo\\verushash\\haraka_portable.c /Fo"vh_objs\\haraka.obj"'
+          echo 'cl /nologo /O2 /std:c++17 /c algo\\verushash\\verushash.cpp /Fo"vh_objs\\vh.obj"'
+          echo 'cl /nologo /O2 /std:c++17 /c algo\\verushash\\vh_clhash_portable.cpp /Fo"vh_objs\\vh_cl.obj"'
+          echo 'cl /nologo /O2 /std:c++17 /c algo\\verushash\\vh_hash.cpp /Fo"vh_objs\\vh_h.obj"'
+          echo 'lib /nologo /out:algo\\verushash\\verushash_all.lib vh_objs\\*.obj'
+          echo 'rmdir /s /q vh_objs'
+          echo ''
+          echo 'echo C modules compiled (Windows MSVC)'
+          } > "${BAT}"
+          # Replace the placeholder with the actual vcvars path (forward-slash for cmd)
+          VCVARS_FWD="${VCVARS//\\//}"
+          sed -i "s|VCVARS_PLACEHOLDER|${VCVARS_FWD}|g" "${BAT}"
+          cmd //c "${BAT}"
 
           echo "C modules compiled (Windows)"
 
