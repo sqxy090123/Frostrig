@@ -261,10 +261,28 @@ jobs:
           CXX="${NDK_TRIPLE}-clang++"
           mkdir -p build
 
-           # Force-link file: references every frostrig_*_create symbol so
-           # they are included in the link.  NDK's lld --gc-sections is
-           # unreliable with version scripts + data-section retain, so we
-           # keep the symbols live through explicit references and drop GC.
+          # Compile each C variant module with clang (C mode, no C++
+          # name mangling).  Linking later with clang++ is fine because
+          # the object files already carry unmangled C symbol names.
+          for src in \
+            algo/randomx/0.c \
+            algo/randomx/wow.c \
+            algo/randomx/2.c \
+            algo/randomx/c64.c \
+            algo/randomx/v.c \
+            algo/randomx/xeq.c \
+            algo/keva/keva.c; do
+            "${CC}" -O2 -fPIC \
+              -Ialgo/randomx -Ialgo/keva \
+              -Irandomx_src/src -Irandomx_keva_src/src \
+              -c "${src}" -o "build/$(basename "${src}" .c).o"
+          done
+
+          OBJ_FILES="build/0.o build/wow.o build/2.o build/c64.o build/v.o build/xeq.o build/keva.o"
+
+          # Force-link file (C mode, no mangling): references every
+          # frostrig_*_create symbol so the linker keeps them in the .so
+          # even though no other object calls them.
           cat > /tmp/frostrig_force_link.c <<'FORCELINK'
           #include <stddef.h>
           extern void *frostrig_rx0_create(int, const void *, size_t);
@@ -285,6 +303,7 @@ jobs:
             (void *)frostrig_rx_keva_create,
           };
           FORCELINK
+          "${CC}" -O2 -fPIC -c /tmp/frostrig_force_link.c -o build/force_link.o
 
           # Version script: export frostrig_* symbols, hide everything else.
           cat > /tmp/frostrig.exports <<'EOF'
@@ -296,22 +315,14 @@ jobs:
           };
           EOF
 
-           "${CXX}" -O2 -fPIC -fvisibility=default -shared \
-             -Ialgo/randomx -Ialgo/keva \
-             -Irandomx_src/src -Irandomx_keva_src/src \
-             algo/randomx/0.c \
-             algo/randomx/wow.c \
-             algo/randomx/2.c \
-             algo/randomx/c64.c \
-             algo/randomx/v.c \
-             algo/randomx/xeq.c \
-             algo/keva/keva.c \
-             /tmp/frostrig_force_link.c \
-             randomx_src/build/librandomx.a \
-             randomx_keva_src/build/librandomx.a \
-             -lstdc++ -lm \
-             -Wl,--version-script,/tmp/frostrig.exports \
-             -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
+          # Link with clang++ so the C++ static libs and -lstdc++ resolve.
+          "${CXX}" -O2 -shared \
+            ${OBJ_FILES} build/force_link.o \
+            randomx_src/build/librandomx.a \
+            randomx_keva_src/build/librandomx.a \
+            -lstdc++ -lm \
+            -Wl,--version-script,/tmp/frostrig.exports \
+            -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
 
        # ------------------------------------------------------------------
