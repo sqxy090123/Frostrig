@@ -42,10 +42,6 @@ on:
   push:
     branches:
       - '261108-feat-frostrig-skeleton'
-    paths:
-      - '.github/workflows/android-build.yaml'
-      - 'algo/**'
-      - 'third_party/argon2/**'
 
 permissions:
   contents: read
