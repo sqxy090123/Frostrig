@@ -83,9 +83,14 @@ jobs:
             else
               powershell -Command "Expand-Archive -Force -Path odin.zip -DestinationPath .\odin-pkg"
             fi
-            # Zip extracts to odin-pkg/odin-windows-amd64-* or odin-pkg/dist/
-            ODIR="$(find odin-pkg -maxdepth 1 -type d -name 'odin-*' 2>/dev/null | head -n 1)"
-            if [ -z "${ODIR}" ]; then ODIR="odin-pkg/dist"; fi
+            # Zip extracts to odin-pkg/dist/ (odin.exe inside) or odin-pkg/odin-windows-amd64-*/
+            if [ -d "odin-pkg/dist" ] && [ -f "odin-pkg/dist/odin.exe" ]; then
+              ODIR="odin-pkg/dist"
+            elif [ -f "odin-pkg/odin.exe" ]; then
+              ODIR="odin-pkg"
+            else
+              ODIR="$(find odin-pkg -type f -name odin.exe 2>/dev/null | head -n1 | xargs dirname)"
+            fi
             echo "ODIN_DIR=${PWD}/${ODIR}" >> "${GITHUB_ENV}"
             echo "${PWD}/${ODIR}" >> "${GITHUB_PATH}"
             echo "${PWD}/${ODIR}/bin" >> "${GITHUB_PATH}"

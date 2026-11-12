@@ -261,10 +261,10 @@ jobs:
           CXX="${NDK_TRIPLE}-clang++"
           mkdir -p build
 
-          # Force-link file: references every frostrig_*_create symbol so
-          # that --gc-sections does not strip them.  NDK's lld does not
-          # support --gc-keep-exported, so we must keep the symbols live
-          # through explicit references.
+           # Force-link file: references every frostrig_*_create symbol so
+           # they are included in the link.  NDK's lld --gc-sections is
+           # unreliable with version scripts + data-section retain, so we
+           # keep the symbols live through explicit references and drop GC.
           cat > /tmp/frostrig_force_link.c <<'FORCELINK'
           #include <stddef.h>
           extern void *frostrig_rx0_create(int, const void *, size_t);
@@ -296,23 +296,22 @@ jobs:
           };
           EOF
 
-          "${CXX}" -O2 -fPIC -fvisibility=default -shared \
-            -Ialgo/randomx -Ialgo/keva \
-            -Irandomx_src/src -Irandomx_keva_src/src \
-            algo/randomx/0.c \
-            algo/randomx/wow.c \
-            algo/randomx/2.c \
-            algo/randomx/c64.c \
-            algo/randomx/v.c \
-            algo/randomx/xeq.c \
-            algo/keva/keva.c \
-            /tmp/frostrig_force_link.c \
-            randomx_src/build/librandomx.a \
-            randomx_keva_src/build/librandomx.a \
-            -lstdc++ -lm \
-            -Wl,--gc-sections \
-            -Wl,--version-script,/tmp/frostrig.exports \
-            -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
+           "${CXX}" -O2 -fPIC -fvisibility=default -shared \
+             -Ialgo/randomx -Ialgo/keva \
+             -Irandomx_src/src -Irandomx_keva_src/src \
+             algo/randomx/0.c \
+             algo/randomx/wow.c \
+             algo/randomx/2.c \
+             algo/randomx/c64.c \
+             algo/randomx/v.c \
+             algo/randomx/xeq.c \
+             algo/keva/keva.c \
+             /tmp/frostrig_force_link.c \
+             randomx_src/build/librandomx.a \
+             randomx_keva_src/build/librandomx.a \
+             -lstdc++ -lm \
+             -Wl,--version-script,/tmp/frostrig.exports \
+             -o "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
           ls -lh "build/libfrostrig-randomx-${ANDROID_ARCH}.so"
 
        # ------------------------------------------------------------------
