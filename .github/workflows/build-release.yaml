@@ -96,7 +96,7 @@ jobs:
             echo "${PWD}/${ODIR}/bin" >> "${GITHUB_PATH}"
             echo "--- Odin directory: ${ODIR}"
             ls -la "${ODIR}"
-            "${ODIR}/odin.exe" --version
+             "${ODIR}/odin.exe" version
           fi
 
       - name: Install LLVM backend (Linux)
