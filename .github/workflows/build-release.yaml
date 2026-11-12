@@ -166,11 +166,15 @@ jobs:
           echo "vcvars: ${VCVARS}"
           # Build a batch script that calls vcvars64 then prints env vars
           VCVARS_FWD="${VCVARS//\\//}"
-          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv.bat
+          WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
+          mkdir -p "${WINTMP}"
+          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > "${WINTMP}/get_msenv.bat"
           # Parse the KEY=VALUE output into bash env vars.
           # PATH is merged (MSVC first) so that cmake/git/etc remain available.
           ORIG_PATH="${PATH}"
           MSVC_PATH=""
+          MSVC_BAT_OUT="$(cmd //c "${WINTMP}/get_msenv.bat" 2>/dev/null)"
+          echo "MSVC bat output (first 500 chars): ${MSVC_BAT_OUT:0:500}"
           while IFS='=' read -r key value; do
             case "${key}" in
               PATH)
@@ -180,7 +184,7 @@ jobs:
                 export "${key}=${value}"
                 ;;
             esac
-          done < <(cmd //c /tmp/get_msenv.bat)
+          done <<< "${MSVC_BAT_OUT}"
           if [[ -n "${MSVC_PATH}" ]]; then
             export "PATH=${MSVC_PATH}:${ORIG_PATH}"
           fi
@@ -349,9 +353,12 @@ jobs:
             fi
             VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
             VCVARS_FWD="${VCVARS//\\//}"
-            printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv_keva.bat
+            WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
+            mkdir -p "${WINTMP}"
+            printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > "${WINTMP}/get_msenv_keva.bat"
             ORIG_PATH="${PATH}"
             MSVC_PATH=""
+            MSVC_BAT_OUT="$(cmd //c "${WINTMP}/get_msenv_keva.bat" 2>/dev/null)"
             while IFS='=' read -r key value; do
               case "${key}" in
                 PATH)
@@ -361,7 +368,7 @@ jobs:
                   export "${key}=${value}"
                   ;;
               esac
-            done < <(cmd //c /tmp/get_msenv_keva.bat)
+            done <<< "${MSVC_BAT_OUT}"
             if [[ -n "${MSVC_PATH}" ]]; then
               export "PATH=${MSVC_PATH}:${ORIG_PATH}"
             fi
@@ -490,9 +497,12 @@ jobs:
 
           # Build batch helper for MSVC env
           VCVARS_FWD="${VCVARS//\\//}"
-          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > /tmp/get_msenv_ccl.bat
+          WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
+          mkdir -p "${WINTMP}"
+          printf '@echo off\ncall "%s"\necho INCLUDE=%%INCLUDE%%\necho LIB=%%LIB%%\necho PATH=%%PATH%%\necho VCToolsInstallDir=%%VCToolsInstallDir%%\necho VSINSTALLDIR=%%VSINSTALLDIR%%\necho WindowsSdkDir=%%WindowsSdkDir%%\necho WindowsSDKVersion=%%WindowsSDKVersion%%\n' "${VCVARS_FWD}" > "${WINTMP}/get_msenv_ccl.bat"
           ORIG_PATH="${PATH}"
           MSVC_PATH=""
+          MSVC_BAT_OUT="$(cmd //c "${WINTMP}/get_msenv_ccl.bat" 2>/dev/null)"
           while IFS='=' read -r key value; do
             case "${key}" in
               PATH)
@@ -502,7 +512,7 @@ jobs:
                 export "${key}=${value}"
                 ;;
             esac
-          done < <(cmd //c /tmp/get_msenv_ccl.bat)
+          done <<< "${MSVC_BAT_OUT}"
           if [[ -n "${MSVC_PATH}" ]]; then
             export "PATH=${MSVC_PATH}:${ORIG_PATH}"
           fi
