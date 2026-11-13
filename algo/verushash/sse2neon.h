@@ -1803,7 +1803,7 @@ FORCE_INLINE __m128 _mm_div_ss(__m128 a, __m128 b)
 
 // Free aligned memory that was allocated with _mm_malloc.
 // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm_free
-#if !defined(SSE2NEON_ALLOC_DEFINED)
+#if defined(__ARM_NEON) && !defined(SSE2NEON_ALLOC_DEFINED)
 FORCE_INLINE void _mm_free(void *addr)
 {
 #if defined(_WIN32)
@@ -1985,7 +1985,7 @@ FORCE_INLINE __m128i _mm_loadu_si64(const void *p)
 // and return a pointer to the allocated memory. _mm_free should be used to free
 // memory that is allocated with _mm_malloc.
 // https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#text=_mm_malloc
-#if !defined(SSE2NEON_ALLOC_DEFINED)
+#if defined(__ARM_NEON) && !defined(SSE2NEON_ALLOC_DEFINED)
 FORCE_INLINE void *_mm_malloc(size_t size, size_t align)
 {
 #if defined(_WIN32)

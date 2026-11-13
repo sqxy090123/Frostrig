@@ -521,8 +521,7 @@ jobs:
             EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
               ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib \
               ${PWD}/algo/argon2/argon2_all.lib \
-              ${PWD}/algo/verushash/verushash_all.lib \
-              msvcrt.lib libucrt.lib vcruntime.lib"
+              ${PWD}/algo/verushash/verushash_all.lib"
           fi
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
