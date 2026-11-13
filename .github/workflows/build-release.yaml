@@ -504,19 +504,19 @@ jobs:
             ARG_LIB=$(cygpath -w "$PWD/algo/argon2/argon2_all.lib" 2>/dev/null)
             VER_LIB=$(cygpath -w "$PWD/algo/verushash/verushash_all.lib" 2>/dev/null)
              EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
-             # MSVC-compiled objects need UCRT import lib; copy to workspace to avoid path-with-spaces issues
-             # Must use x64 ucrt.lib, not arm64
-             UCRT_LIB=$(find "/c/Program Files (x86)/Windows Kits" -path "*/x64/ucrt.lib" 2>/dev/null | head -1)
-             if [ -z "$UCRT_LIB" ]; then
-               UCRT_LIB=$(find "/c/Program Files/Microsoft Visual Studio" -path "*/x64/ucrt.lib" 2>/dev/null | head -1)
+             # MSVC-compiled objects need UCRT; add MSVC lib dir to linker search path
+             MSVC_LIB_DIR=$(find "/c/Program Files/Microsoft Visual Studio" -path "*/x64" -name "lib.exe" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+             if [ -n "$MSVC_LIB_DIR" ]; then
+               MSVC_LIB_W=$(cygpath -w "$MSVC_LIB_DIR")
+               EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS /libpath:\"${MSVC_LIB_W}\""
+               echo "MSVC lib dir: $MSVC_LIB_W"
              fi
-             if [ -n "$UCRT_LIB" ]; then
-               cp "$UCRT_LIB" "$PWD/ucrt.lib"
-               UCRT_LIB_W=$(cygpath -w "$PWD/ucrt.lib")
-               EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS ${UCRT_LIB_W}"
-               echo "Added UCRT lib: $UCRT_LIB_W"
-             else
-               echo "WARNING: ucrt.lib not found"
+             # Also add Windows SDK UCRT x64 lib dir
+             SDK_UCRT_DIR=$(find "/c/Program Files (x86)/Windows Kits" -path "*/ucrt/x64" -type d 2>/dev/null | head -1)
+             if [ -n "$SDK_UCRT_DIR" ]; then
+               SDK_UCRT_W=$(cygpath -w "$SDK_UCRT_DIR")
+               EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS /libpath:\"${SDK_UCRT_W}\""
+               echo "SDK UCRT dir: $SDK_UCRT_W"
              fi
           fi
 
