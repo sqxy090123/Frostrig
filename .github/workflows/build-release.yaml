@@ -142,34 +142,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Locate vcvars64.bat
-          VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-          VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
-          echo "VS install: ${VSINSTALL}"
-          if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
-            for p in \
-              "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/2022/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
-              "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/2025/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
-              "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/18/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
-              if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
-            done
-          fi
-          echo "Using VS: ${VSINSTALL}"
-          VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
-          echo "vcvars: ${VCVARS}"
-          # Write a batch script that sets up MSVC env then runs CMake + Ninja.
-          # Running in native cmd context ensures cl/link see correct
-          # INCLUDE/LIB/WindowsSdk paths.
-          WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
-          mkdir -p "${WINTMP}"
-          printf '@echo off\ncall "%s"\nif errorlevel 1 (echo vcvars64 failed & exit /b 1)\nset CMAKE_GENERATOR=Ninja\ncmake -G Ninja -S randomx_src -B randomx_src/build -DCMAKE_BUILD_TYPE=Release\nif errorlevel 1 (echo cmake configure failed & exit /b 1)\ncmake --build randomx_src/build --target randomx -j 8\nif errorlevel 1 (echo cmake build failed & exit /b 1)\ndir randomx_src\\build\\randomx.lib\n' "${VCVARS}" > "${WINTMP}/build_randomx.bat"
-          cmd //c "${WINTMP}/build_randomx.bat"
+          # Use MinGW-w64 (pre-installed on GitHub runners) for POSIX-compatible .a output
+          # that lld-link handles natively, avoiding MSVC UCRT import lib issues.
+          MINGW_BIN="/c/msys64/mingw64/bin"
+          export PATH="${MINGW_BIN}:${PATH}"
+          echo "MinGW on PATH: $(which x86_64-w64-mingw32-g++)"
+          cat > mingw64.cmake <<'CMEOF'
+          set(CMAKE_SYSTEM_NAME Windows)
+          set(CMAKE_SYSTEM_PROCESSOR x86_64)
+          set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)
+          set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
+          set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
+          set(CMAKE_C_FLAGS "-O2")
+          set(CMAKE_CXX_FLAGS "-O2")
+          set(CMAKE_FIND_ROOT_MODE_PROGRAM NEVER)
+          set(CMAKE_FIND_ROOT_MODE_LIBRARY ONLY)
+          set(CMAKE_FIND_ROOT_MODE_INCLUDE ONLY)
+          CMEOF
+          cmake -G "MinGW Makefiles" -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -S randomx_src -B randomx_src/build
+          cmake --build randomx_src/build --target randomx -j 8
+          ls -lh randomx_src/build/librandomx.a
 
       - name: Build RandomX-Keva static lib
         if: runner.os == 'Linux'
@@ -287,28 +281,14 @@ jobs:
            #define RANDOMX_FREQ_CFROUND        1
            #define RANDOMX_FREQ_ISTORE        16
            #define RANDOMX_FREQ_NOP            0
-          EOF
-           VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-          VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
-          if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
-            for p in \
-              "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/2022/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
-              "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/2025/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
-              "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/18/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
-              if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
-            done
-          fi
-          VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
-          WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
-          mkdir -p "${WINTMP}"
-          printf '@echo off\ncall "%s"\nif errorlevel 1 (echo vcvars64 failed & exit /b 1)\nset CMAKE_GENERATOR=Ninja\ncmake -G Ninja -S randomx_keva_src -B randomx_keva_src/build -DCMAKE_BUILD_TYPE=Release\nif errorlevel 1 (echo cmake configure failed & exit /b 1)\ncmake --build randomx_keva_src/build --target randomx -j 8\nif errorlevel 1 (echo cmake build failed & exit /b 1)\ndir randomx_keva_src\\build\\randomx.lib\n' "${VCVARS}" > "${WINTMP}/build_keva.bat"
-          cmd //c "${WINTMP}/build_keva.bat"
+           EOF
+          MINGW_BIN="/c/msys64/mingw64/bin"
+          export PATH="${MINGW_BIN}:${PATH}"
+          cmake -G "MinGW Makefiles" -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -S randomx_keva_src -B randomx_keva_src/build
+          cmake --build randomx_keva_src/build --target randomx -j 8
+          ls -lh randomx_keva_src/build/librandomx.a
 
       # ------------------------------------------------------------------
       # Link third_party static libs
@@ -338,17 +318,9 @@ jobs:
           ARCH="windows-x86_64"
           mkdir -p "third_party/randomx/lib/${ARCH}"
           mkdir -p "third_party/randomx-keva/lib/${ARCH}"
-          # MSVC produces randomx.lib; MinGW produces librandomx.a
-          if [[ -f randomx_src/build/randomx.lib ]]; then
-            cp randomx_src/build/randomx.lib "third_party/randomx/lib/${ARCH}/librandomx.lib"
-          else
-            cp randomx_src/build/librandomx.a "third_party/randomx/lib/${ARCH}/librandomx.lib"
-          fi
-          if [[ -f randomx_keva_src/build/randomx.lib ]]; then
-            cp randomx_keva_src/build/randomx.lib "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
-          else
-            cp randomx_keva_src/build/librandomx.a "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
-          fi
+          # MinGW produces librandomx.a (POSIX archive); rename to .lib for FFI compat
+          cp randomx_src/build/librandomx.a "third_party/randomx/lib/${ARCH}/librandomx.lib"
+          cp randomx_keva_src/build/librandomx.a "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
           echo "third_party libs in place:"
           ls -lh third_party/randomx/lib/${ARCH}/
           ls -lh third_party/randomx-keva/lib/${ARCH}/
@@ -412,78 +384,52 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Locate vcvars64.bat (same vswhere approach as the RandomX steps)
-          VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-          VSINSTALL="$("${VSWHERE}" -latest -property installationPath)"
-          if [[ -z "${VSINSTALL}" || ! -d "${VSINSTALL}/VC" ]]; then
-            for p in \
-              "C:/Program Files/Microsoft Visual Studio/2022/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/2022/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools" \
-              "C:/Program Files/Microsoft Visual Studio/2025/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/2025/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/2025/BuildTools" \
-              "C:/Program Files/Microsoft Visual Studio/18/Enterprise" \
-              "C:/Program Files/Microsoft Visual Studio/18/Community" \
-              "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools"; do
-              if [[ -d "$p/VC" ]]; then VSINSTALL="$p"; break; fi
-            done
-          fi
-          VCVARS="${VSINSTALL}/VC/Auxiliary/Build/vcvars64.bat"
-          echo "vcvars64.bat: ${VCVARS}"
+          # Use MinGW-w64 for POSIX-compatible .obj output
+          MINGW_BIN="/c/msys64/mingw64/bin"
+          export PATH="${MINGW_BIN}:${PATH}"
+          CC="${MINGW_BIN}/x86_64-w64-mingw32-gcc"
+          CXX="${MINGW_BIN}/x86_64-w64-mingw32-g++"
+          AR="${MINGW_BIN}/x86_64-w64-mingw32-ar"
+          echo "Using MinGW: ${CC}"
 
           # Remove committed pre-built ELF archives (irrelevant on Windows,
           # but keep the tree clean).
           rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
           rm -f algo/randomx/*.o algo/keva/*.o
 
-          # Write a batch script that calls vcvars64 then compiles all
-          # C/C++ modules with MSVC. Running in native cmd context ensures
-          # cl.exe and lib.exe see the correct Windows INCLUDE/LIB env vars.
-          WINTMP="C:/Users/runneradmin/AppData/Local/Temp"
-          mkdir -p "${WINTMP}"
-          BAT="${WINTMP}/compile_c_modules.bat"
-          {
-          echo '@echo off'
-          echo 'call "VCVARS_PLACEHOLDER"'
-          echo 'if errorlevel 1 (echo vcvars64 failed &amp; exit /b 1)'
-          echo ''
-           echo 'REM RandomX variant wrappers'
-           echo 'for %%f in (algo\\randomx\\0.c algo\\randomx\\wow.c algo\\randomx\\2.c algo\\randomx\\c64.c algo\\randomx\\v.c algo\\randomx\\xeq.c) do ('
-           echo '  echo  -- %%f'
-           echo '  cl /nologo /O2 /c /Ialgo\\randomx /Ialgo\\keva "%%f" /Fo"algo\\randomx\\%%~nf.obj"'
-           echo ')'
-           echo 'cl /nologo /O2 /c /Ialgo\\randomx /Ialgo\\keva algo\\keva\\keva.c /Fo"algo\\keva\\keva.obj"'
-          echo ''
-          echo 'REM Argon2'
-          echo 'echo  -- algo/argon2/argon2_all.lib'
-          echo 'mkdir argon2_objs 2&gt;nul'
-          echo 'for %%f in (third_party\\argon2\\src\\argon2.c third_party\\argon2\\src\\blake2b.c third_party\\argon2\\src\\core.c third_party\\argon2\\src\\encoding.c third_party\\argon2\\src\\opt.c third_party\\argon2\\src\\thread.c) do ('
-          echo '  cl /nologo /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src "%%f" /Fo"argon2_objs\\%%~nf.obj"'
-          echo ')'
-          echo 'cl /nologo /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2_id.c /Fo"argon2_objs\\argon2_id.obj"'
-          echo 'cl /nologo /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2d.c /Fo"argon2_objs\\argon2d.obj"'
-          echo 'lib /nologo /out:algo\\argon2\\argon2_all.lib argon2_objs\\*.obj'
-          echo 'rmdir /s /q argon2_objs'
-          echo ''
-          echo 'REM VerusHash'
-          echo 'echo  -- algo/verushash/verushash_all.lib'
-          echo 'mkdir vh_objs 2&gt;nul'
-          echo 'cl /nologo /O2 /c algo\\verushash\\haraka_portable.c /Fo"vh_objs\\haraka.obj"'
-          echo 'cl /nologo /O2 /std:c++17 /c algo\\verushash\\verushash.cpp /Fo"vh_objs\\vh.obj"'
-          echo 'cl /nologo /O2 /std:c++17 /c algo\\verushash\\vh_clhash_portable.cpp /Fo"vh_objs\\vh_cl.obj"'
-          echo 'cl /nologo /O2 /std:c++17 /c algo\\verushash\\vh_hash.cpp /Fo"vh_objs\\vh_h.obj"'
-          echo 'lib /nologo /out:algo\\verushash\\verushash_all.lib vh_objs\\*.obj'
-          echo 'rmdir /s /q vh_objs'
-          echo ''
-          echo 'echo C modules compiled (Windows MSVC)'
-          } > "${BAT}"
-          # Replace the placeholder with the actual vcvars path (forward-slash for cmd)
-          VCVARS_FWD="${VCVARS//\\//}"
-          sed -i "s|VCVARS_PLACEHOLDER|${VCVARS_FWD}|g" "${BAT}"
-          cmd //c "${BAT}"
+          # Compile RandomX variant wrappers (C)
+          for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c; do
+            base=$(basename "$f" .c)
+            echo "  -- $f"
+            "$CC" -O2 -c -Ialgo/randomx -Ialgo/keva "$f" -o "algo/randomx/${base}.obj"
+          done
+          "$CC" -O2 -c -Ialgo/randomx -Ialgo/keva algo/keva/keva.c -o "algo/keva/keva.obj"
 
-          echo "C modules compiled (Windows)"
+          # Compile Argon2 (C library)
+          echo "  -- algo/argon2/argon2_all.lib"
+          mkdir -p argon2_objs
+          for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
+                   third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
+                   third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
+            base=$(basename "$f" .c)
+            "$CC" -O2 -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src "$f" -o "argon2_objs/${base}.obj"
+          done
+          "$CC" -O2 -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src algo/argon2/argon2_id.c -o "argon2_objs/argon2_id.obj"
+          "$CC" -O2 -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src algo/argon2/argon2d.c -o "argon2_objs/argon2d.obj"
+          "$AR" rcs algo/argon2/argon2_all.lib argon2_objs/*.obj
+          rm -rf argon2_objs
+
+          # Compile VerusHash (C + C++)
+          echo "  -- algo/verushash/verushash_all.lib"
+          mkdir -p vh_objs
+          "$CC" -O2 -c algo/verushash/haraka_portable.c -o "vh_objs/haraka.obj"
+          "$CXX" -O2 -std=c++17 -c algo/verushash/verushash.cpp -o "vh_objs/vh.obj"
+          "$CXX" -O2 -std=c++17 -c algo/verushash/vh_clhash_portable.cpp -o "vh_objs/vh_cl.obj"
+          "$CXX" -O2 -std=c++17 -c algo/verushash/vh_hash.cpp -o "vh_objs/vh_h.obj"
+          "$AR" rcs algo/verushash/verushash_all.lib vh_objs/*.obj
+          rm -rf vh_objs
+
+          echo "C modules compiled (Windows MinGW)"
 
       # ------------------------------------------------------------------
       # Build
@@ -524,25 +470,7 @@ jobs:
             ARG_LIB=$(cygpath -w "$PWD/algo/argon2/argon2_all.lib" 2>/dev/null)
             VER_LIB=$(cygpath -w "$PWD/algo/verushash/verushash_all.lib" 2>/dev/null)
             EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
-            # RandomX allocator.cpp.obj references _aligned_malloc/_aligned_free
-            # which live in the Windows SDK libucrt.lib. Use /LIBPATH to add
-            # the UCRT lib dir so lld-link can find libucrt.lib.
-            SDK_LIB=""
-            for d in \
-              "/c/Program Files (x86)/Windows Kits/10/Lib" \
-              "/c/Program Files/Windows Kits/10/Lib"; do
-              if [ -d "$d" ]; then
-                SDK_LIB=$(find "$d" -name 'libucrt.lib' -path '*/x64/*' 2>/dev/null | head -1)
-                if [ -n "$SDK_LIB" ] && [ -f "$SDK_LIB" ]; then break; fi
-              fi
-            done
-            if [ -n "$SDK_LIB" ]; then
-              SDK_DIR_83=$(cygpath -w -s "$(dirname "$SDK_LIB")" 2>/dev/null)
-              echo "UCRT lib dir: $SDK_DIR_83"
-              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS /LIBPATH:$SDK_DIR_83"
-            else
-              echo "WARNING: libucrt.lib not found in Windows SDK"
-            fi
+            # MinGW RandomX lib uses POSIX-compatible symbols, no UCRT needed
           fi
 
           echo "EXTRA_LINKER_FLAGS: $EXTRA_LINKER_FLAGS"
