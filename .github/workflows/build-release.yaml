@@ -302,7 +302,8 @@ jobs:
           echo "Keva CMake configure OK"
           cmake --build randomx_keva_src/build --target randomx -j 8
           echo "Keva CMake build OK"
-          ls -lh randomx_keva_src/build/librandomx.a
+          find randomx_keva_src/build -name '*.a' -o -name '*.lib' 2>/dev/null
+          ls -lh randomx_keva_src/build/
 
       # ------------------------------------------------------------------
       # Link third_party static libs
