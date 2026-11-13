@@ -404,8 +404,8 @@ jobs:
           export PATH="${MINGW_BIN}:${PATH}"
           CC="${MINGW_BIN}/x86_64-w64-mingw32-gcc"
           CXX="${MINGW_BIN}/x86_64-w64-mingw32-g++"
-          AR="${MINGW_BIN}/x86_64-w64-mingw32-ar"
-          echo "Using MinGW: ${CC}"
+          AR="$(which x86_64-w64-mingw32-ar 2>/dev/null || which ar 2>/dev/null || echo "${MINGW_BIN}/x86_64-w64-mingw32-ar")"
+          echo "Using MinGW: CC=${CC} AR=${AR}"
 
           # Remove committed pre-built ELF archives (irrelevant on Windows,
           # but keep the tree clean).
