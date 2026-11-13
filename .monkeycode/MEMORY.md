@@ -88,6 +88,17 @@ Entries discovered by the Agent during task execution should follow this format:
   - Android .so 链接跨架构命名的 .so（如 `librandomx-aarch64.so`）时，`-l` 无法匹配，须直接传完整文件路径
 
 [Project Knowledge Summary]
+- Date: 2026-11-13
+- Context: Discovered by Agent while making build-release Windows jobs pass with MSVC
+- Category: Build Methods
+- Instructions:
+  - Windows CI 用 MSVC `cl.exe`（经 `vcvars64.bat` + Ninja）编译 RandomX/Keva 及 C 模块；MinGW 产出的 `.obj` 会被 `lld-link` 拒绝（`Error(007)` section size mismatch），必须改用 MSVC。
+  - MSVC Ninja 产出的库名为 `randomx.lib`（无 `lib` 前缀），FFI 引用的是 `librandomx.lib`，故 CI 须 `cp randomx.lib third_party/.../librandomx.lib` 重命名。
+  - Keva `configuration.h` 必须包含 `RANDOMX_FREQ_FMUL_R`、`RANDOMX_FREQ_FDIV_M`、`RANDOMX_FREQ_FSQRT_R`，否则 MSVC C++ 编译 `bytecode_machine.hpp` 报 `C2065` 未声明。
+  - MSVC 编译的对象引用 `__imp__aligned_malloc` 等 UCRT 符号，须将 x64 `ucrt.lib`（Windows Kits `*/ucrt/x64/ucrt.lib`）复制到工作区根目录再传完整路径（避免 `C:\Program Files (x86)` 空格被 shell 拆分报 `Error(002) unknown file format "C:\Program"`），同时加 `/NODEFAULTLIB:libucrt.lib /NODEFAULTLIB:libucrtd.lib` 防止静态 `libucrt.lib` 与 DLL 导入重复定义 `calloc`（`Error(024)`）。
+  - YAML `run: |` 块内写 `.bat` 时，heredoc `<<BATCH` 内容行须与块首行同缩进（11 空格）；`@echo off` 在列 1 会被 YAML 解析器当作非法 token 报 `found character '@'`。改用 `{ echo "@echo off"; ... } > file.bat` 逐行 echo 写批处理文件最稳妥。
+  - `find ... | xargs dirname` 在 GitHub Actions bash 里若 `find` 无输出会触发 `xargs: missing operand` 使步骤退出码 123；`find` 的 `-path` 过滤应直接匹配完整文件名（如 `*/ucrt/x64/ucrt.lib`）而非只匹配目录名 `*/x64`。
+
 [Project Knowledge Summary]
 - Date: 2026-11-09
 - Context: Discovered by Agent while building and running the frostrig binary
