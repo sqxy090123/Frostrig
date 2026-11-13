@@ -151,15 +151,15 @@ jobs:
           echo "Using vcvars64: $VCVARS"
           VCVARS_W=$(cygpath -w "$VCVARS")
           TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
-          cat > "${TMPDIR}/build_rx.bat" <<BATCH
-@echo off
-call "${VCVARS_W}"
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_src -B randomx_src/build
-if errorlevel 1 ( echo CMake configure FAILED & exit /b 1 )
-cmake --build randomx_src/build --target randomx
-if errorlevel 1 ( echo CMake build FAILED & exit /b 1 )
-echo RandomX build OK
-BATCH
+           cat > "${TMPDIR}/build_rx.bat" <<'BATCH'
+           @echo off
+           call "${VCVARS_W}"
+           cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_src -B randomx_src/build
+           if errorlevel 1 ( echo CMake configure FAILED & exit /b 1 )
+           cmake --build randomx_src/build --target randomx
+           if errorlevel 1 ( echo CMake build FAILED & exit /b 1 )
+           echo RandomX build OK
+           BATCH
           cmd //c "${TMPDIR}/build_rx.bat"
           rm -f "${TMPDIR}/build_rx.bat"
           # Find the .lib output (Ninja + MSVC produces Release/librandomx.lib)
@@ -286,15 +286,15 @@ BATCH
           VCVARS=$(find "/c/Program Files/Microsoft Visual Studio" -name "vcvars64.bat" 2>/dev/null | head -1)
           VCVARS_W=$(cygpath -w "$VCVARS")
           TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
-          cat > "${TMPDIR}/build_keva.bat" <<BATCH
-@echo off
-call "${VCVARS_W}"
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_keva_src -B randomx_keva_src/build
-if errorlevel 1 ( echo Keva CMake configure FAILED & exit /b 1 )
-cmake --build randomx_keva_src/build --target randomx
-if errorlevel 1 ( echo Keva CMake build FAILED & exit /b 1 )
-echo Keva build OK
-BATCH
+           cat > "${TMPDIR}/build_keva.bat" <<'BATCH'
+           @echo off
+           call "${VCVARS_W}"
+           cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_keva_src -B randomx_keva_src/build
+           if errorlevel 1 ( echo Keva CMake configure FAILED & exit /b 1 )
+           cmake --build randomx_keva_src/build --target randomx
+           if errorlevel 1 ( echo Keva CMake build FAILED & exit /b 1 )
+           echo Keva build OK
+           BATCH
           cmd //c "${TMPDIR}/build_keva.bat"
           rm -f "${TMPDIR}/build_keva.bat"
           KEVA_LIB=$(find randomx_keva_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
@@ -409,46 +409,43 @@ BATCH
           rm -f algo/argon2/*.lib algo/verushash/*.lib
           mkdir -p algo/argon2 algo/verushash
 
-          cat > "${TMPDIR}/compile_c.bat" <<BATCH
-@echo off
-call "${VCVARS_W}"
-echo === RandomX variant wrappers ===
-for %%f in (0 wow 2 c64 v xeq) do (
-  cl /O2 /c /Ialgo\randomx /Ialgo\keva algo\randomx\%%f.c /Fo:algo\randomx\%%f.obj
-  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )
-)
-cl /O2 /c /Ialgo\randomx /Ialgo\keva algo\keva\keva.c /Fo:algo\keva\keva.obj
-if errorlevel 1 ( echo FAILED: keva.obj & exit /b 1 )
-
-echo === Argon2 ===
-mkdir argon2_objs 2>nul
-for %%f in (argon2 blake2b core encoding opt thread) do (
-  cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src third_party\argon2\src\%%f.c /Fo:argon2_objs\%%f.obj
-  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )
-)
-cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src algo\argon2\argon2_id.c /Fo:argon2_objs\argon2_id.obj
-cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src algo\argon2\argon2d.c /Fo:argon2_objs\argon2d.obj
-lib /OUT:algo\argon2\argon2_all.lib /NOLOGO /MACHINE:X64 argon2_objs\*.obj
-if errorlevel 1 ( echo FAILED: argon2_all.lib & exit /b 1 )
-rmdir /s /q argon2_objs
-
-echo === VerusHash ===
-mkdir vh_objs 2>nul
-cl /O2 /c algo\verushash\haraka_portable.c /Fo:vh_objs\haraka.obj
-if errorlevel 1 ( echo FAILED: haraka.obj & exit /b 1 )
-cl /O2 /std:c++17 /c algo\verushash\verushash.cpp /Fo:vh_objs\vh.obj
-if errorlevel 1 ( echo FAILED: vh.obj & exit /b 1 )
-cl /O2 /std:c++17 /c algo\verushash\vh_clhash_portable.cpp /Fo:vh_objs\vh_cl.obj
-if errorlevel 1 ( echo FAILED: vh_cl.obj & exit /b 1 )
-cl /O2 /std:c++17 /c algo\verushash\vh_hash.cpp /Fo:vh_objs\vh_h.obj
-if errorlevel 1 ( echo FAILED: vh_h.obj & exit /b 1 )
-lib /OUT:algo\verushash\verushash_all.lib /NOLOGO /MACHINE:X64 vh_objs\*.obj
-if errorlevel 1 ( echo FAILED: verushash_all.lib & exit /b 1 )
-rmdir /s /q vh_objs
-
-echo C modules compiled (Windows MSVC)
-BATCH
-          cmd //c "${TMPDIR}/compile_c.bat"
+           cat > "${TMPDIR}/compile_c.bat" <<'BATCH'
+           @echo off
+           call "${VCVARS_W}"
+           echo === RandomX variant wrappers ===
+           for %%f in (0 wow 2 c64 v xeq) do (
+             cl /O2 /c /Ialgo\randomx /Ialgo\keva algo\randomx\%%f.c /Fo:algo\randomx\%%f.obj
+             if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )
+           )
+            cl /O2 /c /Ialgo\randomx /Ialgo\keva algo\keva\keva.c /Fo:algo\keva\keva.obj
+            if errorlevel 1 ( echo FAILED: keva.obj & exit /b 1 )
+            echo === Argon2 ===
+            mkdir argon2_objs 2>nul
+            for %%f in (argon2 blake2b core encoding opt thread) do (
+              cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src third_party\argon2\src\%%f.c /Fo:argon2_objs\%%f.obj
+              if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )
+            )
+            cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src algo\argon2\argon2_id.c /Fo:argon2_objs\argon2_id.obj
+            cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src algo\argon2\argon2d.c /Fo:argon2_objs\argon2d.obj
+            lib /OUT:algo\argon2\argon2_all.lib /NOLOGO /MACHINE:X64 argon2_objs\*.obj
+            if errorlevel 1 ( echo FAILED: argon2_all.lib & exit /b 1 )
+            rmdir /s /q argon2_objs
+            echo === VerusHash ===
+            mkdir vh_objs 2>nul
+            cl /O2 /c algo\verushash\haraka_portable.c /Fo:vh_objs\haraka.obj
+            if errorlevel 1 ( echo FAILED: haraka.obj & exit /b 1 )
+            cl /O2 /std:c++17 /c algo\verushash\verushash.cpp /Fo:vh_objs\vh.obj
+            if errorlevel 1 ( echo FAILED: vh.obj & exit /b 1 )
+            cl /O2 /std:c++17 /c algo\verushash\vh_clhash_portable.cpp /Fo:vh_objs\vh_cl.obj
+            if errorlevel 1 ( echo FAILED: vh_cl.obj & exit /b 1 )
+            cl /O2 /std:c++17 /c algo\verushash\vh_hash.cpp /Fo:vh_objs\vh_h.obj
+            if errorlevel 1 ( echo FAILED: vh_h.obj & exit /b 1 )
+            lib /OUT:algo\verushash\verushash_all.lib /NOLOGO /MACHINE:X64 vh_objs\*.obj
+            if errorlevel 1 ( echo FAILED: verushash_all.lib & exit /b 1 )
+             rmdir /s /q vh_objs
+             echo C module build OK
+             BATCH
+           cmd //c "${TMPDIR}/compile_c.bat"
           rm -f "${TMPDIR}/compile_c.bat"
           echo "Windows C modules:"
           ls -lh algo/randomx/*.obj algo/keva/*.obj 2>/dev/null
