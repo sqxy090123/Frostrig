@@ -299,7 +299,9 @@ jobs:
             -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
             -DCMAKE_BUILD_TYPE=Release \
             -S randomx_keva_src -B randomx_keva_src/build
+          echo "Keva CMake configure OK"
           cmake --build randomx_keva_src/build --target randomx -j 8
+          echo "Keva CMake build OK"
           ls -lh randomx_keva_src/build/librandomx.a
 
       # ------------------------------------------------------------------
