@@ -525,7 +525,8 @@ jobs:
             VER_LIB=$(cygpath -w "$PWD/algo/verushash/verushash_all.lib" 2>/dev/null)
             EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
             # RandomX allocator.cpp.obj references _aligned_malloc/_aligned_free
-            # which live in the Windows SDK libucrt.lib. Find and link it.
+            # which live in the Windows SDK libucrt.lib. Use /LIBPATH to add
+            # the UCRT lib dir so lld-link can find libucrt.lib.
             SDK_LIB=""
             for d in \
               "/c/Program Files (x86)/Windows Kits/10/Lib" \
@@ -536,10 +537,9 @@ jobs:
               fi
             done
             if [ -n "$SDK_LIB" ]; then
-              SDK_LIB_WIN=$(cygpath -w -s "$SDK_LIB" 2>/dev/null || echo "$SDK_LIB")
-              echo "SDK_LIB_WIN (8.3): $SDK_LIB_WIN"
-              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS $SDK_LIB_WIN"
-              echo "Linked Windows SDK libucrt: $SDK_LIB"
+              SDK_DIR_83=$(cygpath -w -s "$(dirname "$SDK_LIB")" 2>/dev/null)
+              echo "UCRT lib dir: $SDK_DIR_83"
+              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS /LIBPATH:$SDK_DIR_83"
             else
               echo "WARNING: libucrt.lib not found in Windows SDK"
             fi
