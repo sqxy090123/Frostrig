@@ -522,6 +522,27 @@ jobs:
               ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib \
               ${PWD}/algo/argon2/argon2_all.lib \
               ${PWD}/algo/verushash/verushash_all.lib"
+            # RandomX allocator.cpp.obj references _aligned_malloc/_aligned_free
+            # which live in the Windows SDK libucrt.lib. Find and link it.
+            # Search common install locations; handle spaces in "Program Files (x86)".
+            SDK_LIB=""
+            for d in \
+              "/c/Program Files (x86)/Windows Kits/10/Lib" \
+              "/c/Program Files/Windows Kits/10/Lib" \
+              "/c/PROGRA~2/WindowsKits/10/Lib" \
+              "/c/PROGRA~1/WindowsKits/10/Lib"; do
+              if [ -d "$d" ]; then
+                SDK_LIB=$(find "$d" -name 'libucrt.lib' -path '*/x64/*' 2>/dev/null | head -1)
+                if [ -n "$SDK_LIB" ] && [ -f "$SDK_LIB" ]; then break; fi
+              fi
+            done
+            if [ -n "$SDK_LIB" ]; then
+              SDK_DIR=$(dirname "$SDK_LIB")
+              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS -L$SDK_DIR -llibucrt"
+              echo "Linked Windows SDK libucrt: $SDK_LIB"
+            else
+              echo "WARNING: libucrt.lib not found in Windows SDK"
+            fi
           fi
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
