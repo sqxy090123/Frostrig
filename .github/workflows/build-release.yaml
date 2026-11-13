@@ -289,6 +289,9 @@ jobs:
            EOF
           MINGW_BIN="/c/mingw64/bin"
           export PATH="${MINGW_BIN}:${PATH}"
+          echo "MinGW compiler: $(which x86_64-w64-mingw32-gcc)"
+          echo "MinGW make: $(which mingw32-make)"
+          ls -lh "$(pwd)/mingw64.cmake"
           cmake -G "MinGW Makefiles" \
             -DCMAKE_TOOLCHAIN_FILE="$(pwd)/mingw64.cmake" \
             -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
