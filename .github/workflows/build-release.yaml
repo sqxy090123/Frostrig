@@ -161,7 +161,7 @@ jobs:
           set(CMAKE_FIND_ROOT_MODE_INCLUDE ONLY)
           CMEOF
           cmake -G "MinGW Makefiles" \
-            -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+            -DCMAKE_TOOLCHAIN_FILE="$(pwd)/mingw64.cmake" \
             -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
             -DCMAKE_C_COMPILER="$(which x86_64-w64-mingw32-gcc)" \
             -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
@@ -290,7 +290,7 @@ jobs:
           MINGW_BIN="/c/mingw64/bin"
           export PATH="${MINGW_BIN}:${PATH}"
           cmake -G "MinGW Makefiles" \
-            -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+            -DCMAKE_TOOLCHAIN_FILE="$(pwd)/mingw64.cmake" \
             -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
             -DCMAKE_C_COMPILER="$(which x86_64-w64-mingw32-gcc)" \
             -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
