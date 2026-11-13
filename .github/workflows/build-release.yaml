@@ -538,7 +538,10 @@ jobs:
             done
             if [ -n "$SDK_LIB" ]; then
               SDK_DIR=$(dirname "$SDK_LIB")
-              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS -L$SDK_DIR -llibucrt"
+              # Convert to Windows 8.3 short path to avoid spaces in linker flags
+              SDK_DIR_WIN=$(cygpath -w -s "$SDK_DIR" 2>/dev/null || echo "$SDK_DIR")
+              echo "SDK_DIR_83: $SDK_DIR_WIN"
+              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS -L$SDK_DIR_WIN -llibucrt"
               echo "Linked Windows SDK libucrt: $SDK_LIB"
             else
               echo "WARNING: libucrt.lib not found in Windows SDK"
