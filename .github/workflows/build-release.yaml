@@ -335,16 +335,13 @@ jobs:
           mkdir -p "third_party/randomx-keva/lib/${ARCH}"
 
           # Find lib.exe from MSVC toolchain
-          LIB_EXE=""
-          for vs in "/c/Program Files/Microsoft Visual Studio"/*"/Common7/Tools/lib.exe" \
-                    "/c/Program Files/Microsoft Visual Studio"/*"/VC/Tools/MSVC"/*/bin/Hostx64/x64/lib.exe; do
-            if [ -f "$vs" ]; then
-              LIB_EXE="$vs"
-              break
-            fi
-          done
+          LIB_EXE=$(find "/c/Program Files/Microsoft Visual Studio" -name "lib.exe" -path "*/Hostx64/x64/*" 2>/dev/null | head -1)
+          if [ -z "$LIB_EXE" ]; then
+            LIB_EXE=$(find "/c/Program Files/Microsoft Visual Studio" -name "lib.exe" 2>/dev/null | head -1)
+          fi
           if [ -z "$LIB_EXE" ]; then
             echo "ERROR: lib.exe not found"
+            find "/c/Program Files/Microsoft Visual Studio" -name "lib*" 2>/dev/null | head -10
             exit 1
           fi
           echo "Using lib.exe: $LIB_EXE"
