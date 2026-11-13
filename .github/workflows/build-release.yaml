@@ -518,24 +518,11 @@ jobs:
               ${PWD}/third_party/randomx/lib/linux-x86_64/librandomx.a \
               ${PWD}/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
           else
-            CRT_LIBS=""
-            for d in /c/Program\ Files/Microsoft\ Visual\ Studio/*/VC/Tools/MSVC/*/lib/x64; do
-              if [[ -d "$d" ]]; then
-                CRT_LIBS="${d}/libucrt.lib ${d}/vcruntime.lib"
-                break
-              fi
-            done
-            for d in "/c/Program Files (x86)/Windows Kits/10/Lib"/*/um/x64; do
-              if [[ -d "$d" ]]; then
-                CRT_LIBS="${CRT_LIBS} ${d}/msvcrt.lib"
-                break
-              fi
-            done
             EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
               ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib \
               ${PWD}/algo/argon2/argon2_all.lib \
               ${PWD}/algo/verushash/verushash_all.lib \
-              ${CRT_LIBS}"
+              msvcrt.lib libucrt.lib vcruntime.lib"
           fi
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
