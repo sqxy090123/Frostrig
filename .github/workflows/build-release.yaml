@@ -160,7 +160,11 @@ jobs:
           set(CMAKE_FIND_ROOT_MODE_LIBRARY ONLY)
           set(CMAKE_FIND_ROOT_MODE_INCLUDE ONLY)
           CMEOF
-          cmake -G "MinGW Makefiles" -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+          cmake -G "MinGW Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+            -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
+            -DCMAKE_C_COMPILER="$(which x86_64-w64-mingw32-gcc)" \
+            -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
             -DCMAKE_BUILD_TYPE=Release \
             -S randomx_src -B randomx_src/build
           cmake --build randomx_src/build --target randomx -j 8
@@ -285,7 +289,11 @@ jobs:
            EOF
           MINGW_BIN="/c/mingw64/bin"
           export PATH="${MINGW_BIN}:${PATH}"
-          cmake -G "MinGW Makefiles" -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+          cmake -G "MinGW Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
+            -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
+            -DCMAKE_C_COMPILER="$(which x86_64-w64-mingw32-gcc)" \
+            -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
             -DCMAKE_BUILD_TYPE=Release \
             -S randomx_keva_src -B randomx_keva_src/build
           cmake --build randomx_keva_src/build --target randomx -j 8
