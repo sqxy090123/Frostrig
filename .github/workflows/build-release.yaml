@@ -536,10 +536,9 @@ jobs:
               fi
             done
             if [ -n "$SDK_LIB" ]; then
-              SDK_DIR=$(dirname "$SDK_LIB")
-              SDK_DIR_WIN=$(cygpath -w -s "$SDK_DIR" 2>/dev/null || echo "$SDK_DIR")
-              echo "SDK_DIR_83: $SDK_DIR_WIN"
-              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS -L$SDK_DIR_WIN -llibucrt"
+              SDK_LIB_WIN=$(cygpath -w "$SDK_LIB" 2>/dev/null || echo "$SDK_LIB")
+              echo "SDK_LIB_WIN: $SDK_LIB_WIN"
+              EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS $SDK_LIB_WIN"
               echo "Linked Windows SDK libucrt: $SDK_LIB"
             else
               echo "WARNING: libucrt.lib not found in Windows SDK"
