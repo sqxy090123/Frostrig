@@ -160,12 +160,15 @@ jobs:
              echo "if errorlevel 1 ( echo CMake build FAILED & exit /b 1 )"
              echo "echo RandomX build OK"
            } > "${TMPDIR}/build_rx.bat"
-          cmd //c "${TMPDIR}/build_rx.bat"
-          rm -f "${TMPDIR}/build_rx.bat"
-          # Find the .lib output (Ninja + MSVC produces Release/librandomx.lib)
-          RX_LIB=$(find randomx_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
-          echo "RandomX lib: $RX_LIB"
-          ls -lh "$RX_LIB"
+           cmd //c "${TMPDIR}/build_rx.bat"
+           rm -f "${TMPDIR}/build_rx.bat"
+           # MSVC Ninja produces randomx.lib; rename to librandomx.lib for FFI
+           RX_LIB=$(find randomx_src/build -name 'randomx.lib' 2>/dev/null | head -1)
+           if [ -z "$RX_LIB" ]; then
+             RX_LIB=$(find randomx_src/build -name '*.lib' 2>/dev/null | head -1)
+           fi
+           echo "RandomX lib: $RX_LIB"
+           ls -lh "$RX_LIB"
 
       - name: Build RandomX-Keva static lib
         if: runner.os == 'Linux'
@@ -295,10 +298,13 @@ jobs:
              echo "if errorlevel 1 ( echo Keva CMake build FAILED & exit /b 1 )"
              echo "echo Keva build OK"
            } > "${TMPDIR}/build_keva.bat"
-          cmd //c "${TMPDIR}/build_keva.bat"
-          rm -f "${TMPDIR}/build_keva.bat"
-          KEVA_LIB=$(find randomx_keva_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
-          echo "Keva lib: $KEVA_LIB"
+           cmd //c "${TMPDIR}/build_keva.bat"
+           rm -f "${TMPDIR}/build_keva.bat"
+           KEVA_LIB=$(find randomx_keva_src/build -name 'randomx.lib' 2>/dev/null | head -1)
+           if [ -z "$KEVA_LIB" ]; then
+             KEVA_LIB=$(find randomx_keva_src/build -name '*.lib' 2>/dev/null | head -1)
+           fi
+           echo "Keva lib: $KEVA_LIB"
           ls -lh "$KEVA_LIB"
 
       # ------------------------------------------------------------------
@@ -327,18 +333,24 @@ jobs:
         run: |
           set -euo pipefail
           ARCH="windows-x86_64"
-          mkdir -p "third_party/randomx/lib/${ARCH}"
-          mkdir -p "third_party/randomx-keva/lib/${ARCH}"
-          # MSVC CMake produces librandomx.lib (COFF) directly
-          RX_LIB=$(find randomx_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
-          KEVA_LIB=$(find randomx_keva_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
-          echo "RX lib: $RX_LIB"
-          echo "Keva lib: $KEVA_LIB"
-          cp "$RX_LIB" "third_party/randomx/lib/${ARCH}/librandomx.lib"
-          cp "$KEVA_LIB" "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
-          echo "third_party libs in place:"
-          ls -lh third_party/randomx/lib/${ARCH}/
-          ls -lh third_party/randomx-keva/lib/${ARCH}/
+           mkdir -p "third_party/randomx/lib/${ARCH}"
+           mkdir -p "third_party/randomx-keva/lib/${ARCH}"
+           # MSVC Ninja produces randomx.lib; search for any .lib
+           RX_LIB=$(find randomx_src/build -name 'randomx.lib' 2>/dev/null | head -1)
+           if [ -z "$RX_LIB" ]; then
+             RX_LIB=$(find randomx_src/build -name '*.lib' 2>/dev/null | head -1)
+           fi
+           KEVA_LIB=$(find randomx_keva_src/build -name 'randomx.lib' 2>/dev/null | head -1)
+           if [ -z "$KEVA_LIB" ]; then
+             KEVA_LIB=$(find randomx_keva_src/build -name '*.lib' 2>/dev/null | head -1)
+           fi
+           echo "RX lib: $RX_LIB"
+           echo "Keva lib: $KEVA_LIB"
+           cp "$RX_LIB" "third_party/randomx/lib/${ARCH}/librandomx.lib"
+           cp "$KEVA_LIB" "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
+           echo "third_party libs in place:"
+           ls -lh third_party/randomx/lib/${ARCH}/
+           ls -lh third_party/randomx-keva/lib/${ARCH}/
 
       # ------------------------------------------------------------------
       # Compile C algo modules
