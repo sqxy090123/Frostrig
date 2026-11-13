@@ -15,26 +15,26 @@
 
 #include <assert.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <malloc.h>
+typedef unsigned char u_char;
+#endif
 
 int __cpuverusoptimized = 0x80;
 
 thread_local thread_specific_ptr verusclhasher_key;
 thread_local thread_specific_ptr verusclhasher_descr;
 
-#if defined(_WIN32)
-thread_specific_ptr::~thread_specific_ptr() {
-    if (verusclhasher_key.ptr)
-        verusclhasher_key.reset();
-    if (verusclhasher_descr.ptr)
-        verusclhasher_descr.reset();
-}
-#endif
-
 void *alloc_aligned_buffer(uint64_t bufSize)
 {
     void *answer = NULL;
-    if (posix_memalign(&answer, sizeof(__m128i) * 2, bufSize))
+#if defined(_WIN32)
+    answer = _aligned_malloc(bufSize, 16);
+    if (!answer) return NULL;
+#else
+    if (posix_memalign(&answer, 16, bufSize))
         return NULL;
+#endif
     return answer;
 }
 

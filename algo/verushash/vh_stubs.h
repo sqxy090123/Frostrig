@@ -50,7 +50,7 @@ struct thread_specific_ptr {
     ~thread_specific_ptr() { reset(); }
     void reset(void *newptr = nullptr) {
         if (ptr && ptr != newptr)
-            std::free(ptr);
+            free(ptr);
         ptr = newptr;
     }
     void *get() { return ptr; }
