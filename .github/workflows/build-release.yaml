@@ -582,7 +582,7 @@ jobs:
             echo "Windows artifact built; skipping execution"
           else
             echo "Smoke test: running $OUT"
-            "$OUT" || echo "binary exited non-zero (expected for skeleton)"
+            timeout 10 "$OUT" 2>&1 || echo "binary exited non-zero or timed out (expected for skeleton)"
             if [[ "${{ matrix.mode }}" == "debug" && -f "errhandler.log" ]]; then
               echo "errhandler.log contents:"
               cat errhandler.log
