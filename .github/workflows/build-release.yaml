@@ -536,8 +536,8 @@ jobs:
               fi
             done
             if [ -n "$SDK_LIB" ]; then
-              SDK_LIB_WIN=$(cygpath -w "$SDK_LIB" 2>/dev/null || echo "$SDK_LIB")
-              echo "SDK_LIB_WIN: $SDK_LIB_WIN"
+              SDK_LIB_WIN=$(cygpath -w -s "$SDK_LIB" 2>/dev/null || echo "$SDK_LIB")
+              echo "SDK_LIB_WIN (8.3): $SDK_LIB_WIN"
               EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS $SDK_LIB_WIN"
               echo "Linked Windows SDK libucrt: $SDK_LIB"
             else
