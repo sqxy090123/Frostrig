@@ -524,13 +524,10 @@ jobs:
               ${PWD}/algo/verushash/verushash_all.lib"
             # RandomX allocator.cpp.obj references _aligned_malloc/_aligned_free
             # which live in the Windows SDK libucrt.lib. Find and link it.
-            # Search common install locations; handle spaces in "Program Files (x86)".
             SDK_LIB=""
             for d in \
               "/c/Program Files (x86)/Windows Kits/10/Lib" \
-              "/c/Program Files/Windows Kits/10/Lib" \
-              "/c/PROGRA~2/WindowsKits/10/Lib" \
-              "/c/PROGRA~1/WindowsKits/10/Lib"; do
+              "/c/Program Files/Windows Kits/10/Lib"; do
               if [ -d "$d" ]; then
                 SDK_LIB=$(find "$d" -name 'libucrt.lib' -path '*/x64/*' 2>/dev/null | head -1)
                 if [ -n "$SDK_LIB" ] && [ -f "$SDK_LIB" ]; then break; fi
@@ -538,7 +535,6 @@ jobs:
             done
             if [ -n "$SDK_LIB" ]; then
               SDK_DIR=$(dirname "$SDK_LIB")
-              # Convert to Windows 8.3 short path to avoid spaces in linker flags
               SDK_DIR_WIN=$(cygpath -w -s "$SDK_DIR" 2>/dev/null || echo "$SDK_DIR")
               echo "SDK_DIR_83: $SDK_DIR_WIN"
               EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS -L$SDK_DIR_WIN -llibucrt"
@@ -547,6 +543,13 @@ jobs:
               echo "WARNING: libucrt.lib not found in Windows SDK"
             fi
           fi
+
+          echo "EXTRA_LINKER_FLAGS: $EXTRA_LINKER_FLAGS"
+          echo "Lib files:"
+          ls -lh ${PWD}/third_party/randomx/lib/windows-x86_64/ 2>/dev/null || true
+          ls -lh ${PWD}/third_party/randomx-keva/lib/windows-x86_64/ 2>/dev/null || true
+          ls -lh ${PWD}/algo/argon2/argon2_all.lib 2>/dev/null || true
+          ls -lh ${PWD}/algo/verushash/verushash_all.lib 2>/dev/null || true
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
             "${ODIN}" build . -target:"$TARGET" -microarch:generic \
