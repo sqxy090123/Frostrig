@@ -518,10 +518,12 @@ jobs:
               ${PWD}/third_party/randomx/lib/linux-x86_64/librandomx.a \
               ${PWD}/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
           else
-            EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
-              ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib \
-              ${PWD}/algo/argon2/argon2_all.lib \
-              ${PWD}/algo/verushash/verushash_all.lib"
+            # Convert all lib paths to Windows format for the C backend linker
+            RX_LIB=$(cygpath -w "$PWD/third_party/randomx/lib/windows-x86_64/librandomx.lib" 2>/dev/null)
+            KEVA_LIB=$(cygpath -w "$PWD/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib" 2>/dev/null)
+            ARG_LIB=$(cygpath -w "$PWD/algo/argon2/argon2_all.lib" 2>/dev/null)
+            VER_LIB=$(cygpath -w "$PWD/algo/verushash/verushash_all.lib" 2>/dev/null)
+            EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
             # RandomX allocator.cpp.obj references _aligned_malloc/_aligned_free
             # which live in the Windows SDK libucrt.lib. Find and link it.
             SDK_LIB=""
