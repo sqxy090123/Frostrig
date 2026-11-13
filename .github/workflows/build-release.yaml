@@ -142,33 +142,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Use MinGW-w64 (pre-installed on GitHub runners) for POSIX-compatible .a output
-          # that lld-link handles natively, avoiding MSVC UCRT import lib issues.
-          MINGW_BIN="/c/mingw64/bin"
-          export PATH="${MINGW_BIN}:${PATH}"
-          echo "MinGW on PATH: $(which x86_64-w64-mingw32-g++)"
-          cat > mingw64.cmake <<'CMEOF'
-          set(CMAKE_SYSTEM_NAME Windows)
-          set(CMAKE_SYSTEM_PROCESSOR x86_64)
-          set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)
-          set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
-          set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
-          set(CMAKE_MAKE_PROGRAM mingw32-make)
-          set(CMAKE_C_FLAGS "-O2")
-          set(CMAKE_CXX_FLAGS "-O2")
-          set(CMAKE_FIND_ROOT_MODE_PROGRAM NEVER)
-          set(CMAKE_FIND_ROOT_MODE_LIBRARY ONLY)
-          set(CMAKE_FIND_ROOT_MODE_INCLUDE ONLY)
-          CMEOF
-          cmake -G "MinGW Makefiles" \
-            -DCMAKE_TOOLCHAIN_FILE="$(pwd)/mingw64.cmake" \
-            -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
-            -DCMAKE_C_COMPILER="$(which x86_64-w64-mingw32-gcc)" \
-            -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -S randomx_src -B randomx_src/build
-          cmake --build randomx_src/build --target randomx -j 8
-          ls -lh randomx_src/build/librandomx.a
+          # Use MSVC via vcvars64.bat batch file for proper COFF output
+          VCVARS=$(find "/c/Program Files/Microsoft Visual Studio" -name "vcvars64.bat" 2>/dev/null | head -1)
+          if [ -z "$VCVARS" ]; then
+            echo "ERROR: vcvars64.bat not found"
+            exit 1
+          fi
+          echo "Using vcvars64: $VCVARS"
+          VCVARS_W=$(cygpath -w "$VCVARS")
+          TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
+          cat > "${TMPDIR}/build_rx.bat" <<BATCH
+@echo off
+call "${VCVARS_W}"
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_src -B randomx_src/build
+if errorlevel 1 ( echo CMake configure FAILED & exit /b 1 )
+cmake --build randomx_src/build --target randomx
+if errorlevel 1 ( echo CMake build FAILED & exit /b 1 )
+echo RandomX build OK
+BATCH
+          cmd //c "${TMPDIR}/build_rx.bat"
+          rm -f "${TMPDIR}/build_rx.bat"
+          # Find the .lib output (Ninja + MSVC produces Release/librandomx.lib)
+          RX_LIB=$(find randomx_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
+          echo "RandomX lib: $RX_LIB"
+          ls -lh "$RX_LIB"
 
       - name: Build RandomX-Keva static lib
         if: runner.os == 'Linux'
@@ -278,32 +275,31 @@ jobs:
           #define RANDOMX_FREQ_FADD_M         5
           #define RANDOMX_FREQ_FSUB_R        16
           #define RANDOMX_FREQ_FSUB_M         5
-          #define RANDOMX_FREQ_FSCAL_R        6
-          #define RANDOMX_FREQ_FMUL_R        32
-          #define RANDOMX_FREQ_FDIV_M         4
-          #define RANDOMX_FREQ_FSQRT_R        6
+          #define RANDOMX_FREQ_FSCAL_R        8
+          #define RANDOMX_FREQ_FSCAL_M        1
           #define RANDOMX_FREQ_CBRANCH       25
           #define RANDOMX_FREQ_CFROUND        1
           #define RANDOMX_FREQ_ISTORE        16
           #define RANDOMX_FREQ_NOP            0
           EOF
-          MINGW_BIN="/c/mingw64/bin"
-          export PATH="${MINGW_BIN}:${PATH}"
-          echo "MinGW compiler: $(which x86_64-w64-mingw32-gcc)"
-          echo "MinGW make: $(which mingw32-make)"
-          ls -lh "$(pwd)/mingw64.cmake"
-          cmake -G "MinGW Makefiles" \
-            -DCMAKE_TOOLCHAIN_FILE="$(pwd)/mingw64.cmake" \
-            -DCMAKE_MAKE_PROGRAM="$(which mingw32-make)" \
-            -DCMAKE_C_COMPILER="$(which x86_64-w64-mingw32-gcc)" \
-            -DCMAKE_CXX_COMPILER="$(which x86_64-w64-mingw32-g++)" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -S randomx_keva_src -B randomx_keva_src/build
-          echo "Keva CMake configure OK"
-          cmake --build randomx_keva_src/build --target randomx -j 8
-          echo "Keva CMake build OK"
-          find randomx_keva_src/build -name '*.a' -o -name '*.lib' 2>/dev/null
-          ls -lh randomx_keva_src/build/
+          # Use MSVC via vcvars64.bat for Keva build
+          VCVARS=$(find "/c/Program Files/Microsoft Visual Studio" -name "vcvars64.bat" 2>/dev/null | head -1)
+          VCVARS_W=$(cygpath -w "$VCVARS")
+          TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
+          cat > "${TMPDIR}/build_keva.bat" <<BATCH
+@echo off
+call "${VCVARS_W}"
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_keva_src -B randomx_keva_src/build
+if errorlevel 1 ( echo Keva CMake configure FAILED & exit /b 1 )
+cmake --build randomx_keva_src/build --target randomx
+if errorlevel 1 ( echo Keva CMake build FAILED & exit /b 1 )
+echo Keva build OK
+BATCH
+          cmd //c "${TMPDIR}/build_keva.bat"
+          rm -f "${TMPDIR}/build_keva.bat"
+          KEVA_LIB=$(find randomx_keva_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
+          echo "Keva lib: $KEVA_LIB"
+          ls -lh "$KEVA_LIB"
 
       # ------------------------------------------------------------------
       # Link third_party static libs
@@ -333,58 +329,13 @@ jobs:
           ARCH="windows-x86_64"
           mkdir -p "third_party/randomx/lib/${ARCH}"
           mkdir -p "third_party/randomx-keva/lib/${ARCH}"
-
-          # Find lib.exe from MSVC toolchain
-          LIB_EXE=$(find "/c/Program Files/Microsoft Visual Studio" -name "lib.exe" -path "*/Hostx64/x64/*" 2>/dev/null | head -1)
-          if [ -z "$LIB_EXE" ]; then
-            LIB_EXE=$(find "/c/Program Files/Microsoft Visual Studio" -name "lib.exe" 2>/dev/null | head -1)
-          fi
-          if [ -z "$LIB_EXE" ]; then
-            echo "ERROR: lib.exe not found"
-            find "/c/Program Files/Microsoft Visual Studio" -name "lib*" 2>/dev/null | head -10
-            exit 1
-          fi
-          echo "Using lib.exe: $LIB_EXE"
-
-          # Extract .obj files from POSIX archives, rebuild as COFF with lib.exe
-          # Use Windows temp dir for obj files (lib.exe can't read MSYS /tmp)
-          WIN_TMP="C:/Users/runneradmin/AppData/Local/Temp"
-          RX_OBJS="${WIN_TMP}/rx_objs"
-          KEVA_OBJS="${WIN_TMP}/keva_objs"
-          rm -rf "$RX_OBJS" "$KEVA_OBJS"
-          mkdir -p "$RX_OBJS" "$KEVA_OBJS"
-          RX_A="$(pwd)/randomx_src/build/librandomx.a"
-          KEVA_A="$(pwd)/randomx_keva_src/build/librandomx.a"
-          cd "$RX_OBJS" && ar x "$RX_A"
-          cd "$KEVA_OBJS" && ar x "$KEVA_A"
-          cd /d/a/Frostrig/Frostrig
-          # Convert obj paths to Windows format for lib.exe
-          RX_OBJ_LIST=""
-          for obj in $(ls "$RX_OBJS"/*.obj 2>/dev/null); do
-            RX_OBJ_LIST="${RX_OBJ_LIST} $(cygpath -w "$obj")"
-          done
-          KEVA_OBJ_LIST=""
-          for obj in $(ls "$KEVA_OBJS"/*.obj 2>/dev/null); do
-            KEVA_OBJ_LIST="${KEVA_OBJ_LIST} $(cygpath -w "$obj")"
-          done
-          RX_LIB_OUT=$(cygpath -w "third_party/randomx/lib/${ARCH}/librandomx.lib")
-          KEVA_LIB_OUT=$(cygpath -w "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib")
-          LIB_WIN=$(cygpath -w "$LIB_EXE")
-          # Write batch files for lib.exe (Windows native arg parsing)
-          echo "@echo off" > "${WIN_TMP}/build_rx_lib.bat"
-          echo "echo Building RandomX COFF archive..." >> "${WIN_TMP}/build_rx_lib.bat"
-          echo "\"$LIB_WIN\" /OUT:\"$RX_LIB_OUT\" /NOLOGO /MACHINE:X64 $RX_OBJ_LIST" >> "${WIN_TMP}/build_rx_lib.bat"
-          echo "if errorlevel 1 ( echo RandomX lib.exe FAILED & exit /b 1 )" >> "${WIN_TMP}/build_rx_lib.bat"
-          echo "echo RandomX COFF archive OK" >> "${WIN_TMP}/build_rx_lib.bat"
-          echo "@echo off" > "${WIN_TMP}/build_keva_lib.bat"
-          echo "echo Building Keva COFF archive..." >> "${WIN_TMP}/build_keva_lib.bat"
-          echo "\"$LIB_WIN\" /OUT:\"$KEVA_LIB_OUT\" /NOLOGO /MACHINE:X64 $KEVA_OBJ_LIST" >> "${WIN_TMP}/build_keva_lib.bat"
-          echo "if errorlevel 1 ( echo Keva lib.exe FAILED & exit /b 1 )" >> "${WIN_TMP}/build_keva_lib.bat"
-          echo "echo Keva COFF archive OK" >> "${WIN_TMP}/build_keva_lib.bat"
-          cmd //c "${WIN_TMP}/build_rx_lib.bat"
-          cmd //c "${WIN_TMP}/build_keva_lib.bat"
-          rm -f "${WIN_TMP}/build_rx_lib.bat" "${WIN_TMP}/build_keva_lib.bat"
-          rm -rf "$RX_OBJS" "$KEVA_OBJS"
+          # MSVC CMake produces librandomx.lib (COFF) directly
+          RX_LIB=$(find randomx_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
+          KEVA_LIB=$(find randomx_keva_src/build -name 'librandomx.lib' 2>/dev/null | head -1)
+          echo "RX lib: $RX_LIB"
+          echo "Keva lib: $KEVA_LIB"
+          cp "$RX_LIB" "third_party/randomx/lib/${ARCH}/librandomx.lib"
+          cp "$KEVA_LIB" "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
           echo "third_party libs in place:"
           ls -lh third_party/randomx/lib/${ARCH}/
           ls -lh third_party/randomx-keva/lib/${ARCH}/
@@ -447,53 +398,61 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Use MSVC cl.exe via vcvars64.bat batch file
+          VCVARS=$(find "/c/Program Files/Microsoft Visual Studio" -name "vcvars64.bat" 2>/dev/null | head -1)
+          VCVARS_W=$(cygpath -w "$VCVARS")
+          TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
 
-          # Use MinGW-w64 for POSIX-compatible .obj output
-          MINGW_BIN="/c/mingw64/bin"
-          export PATH="${MINGW_BIN}:${PATH}"
-          CC="${MINGW_BIN}/x86_64-w64-mingw32-gcc"
-          CXX="${MINGW_BIN}/x86_64-w64-mingw32-g++"
-          AR="$(which x86_64-w64-mingw32-ar 2>/dev/null || which ar 2>/dev/null || echo "${MINGW_BIN}/x86_64-w64-mingw32-ar")"
-          echo "Using MinGW: CC=${CC} AR=${AR}"
-
-          # Remove committed pre-built ELF archives (irrelevant on Windows,
-          # but keep the tree clean).
+          # Remove committed pre-built ELF archives
           rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
           rm -f algo/randomx/*.o algo/keva/*.o
+          rm -f algo/argon2/*.lib algo/verushash/*.lib
+          mkdir -p algo/argon2 algo/verushash
 
-          # Compile RandomX variant wrappers (C)
-          for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c; do
-            base=$(basename "$f" .c)
-            echo "  -- $f"
-            "$CC" -O2 -c -Ialgo/randomx -Ialgo/keva "$f" -o "algo/randomx/${base}.obj"
-          done
-          "$CC" -O2 -c -Ialgo/randomx -Ialgo/keva algo/keva/keva.c -o "algo/keva/keva.obj"
+          cat > "${TMPDIR}/compile_c.bat" <<BATCH
+@echo off
+call "${VCVARS_W}"
+echo === RandomX variant wrappers ===
+for %%f in (0 wow 2 c64 v xeq) do (
+  cl /O2 /c /Ialgo\randomx /Ialgo\keva algo\randomx\%%f.c /Fo:algo\randomx\%%f.obj
+  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )
+)
+cl /O2 /c /Ialgo\randomx /Ialgo\keva algo\keva\keva.c /Fo:algo\keva\keva.obj
+if errorlevel 1 ( echo FAILED: keva.obj & exit /b 1 )
 
-          # Compile Argon2 (C library)
-          echo "  -- algo/argon2/argon2_all.lib"
-          mkdir -p argon2_objs
-          for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
-                   third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
-                   third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
-            base=$(basename "$f" .c)
-            "$CC" -O2 -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src "$f" -o "argon2_objs/${base}.obj"
-          done
-          "$CC" -O2 -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src algo/argon2/argon2_id.c -o "argon2_objs/argon2_id.obj"
-          "$CC" -O2 -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src algo/argon2/argon2d.c -o "argon2_objs/argon2d.obj"
-          "$AR" rcs algo/argon2/argon2_all.lib argon2_objs/*.obj
-          rm -rf argon2_objs
+echo === Argon2 ===
+mkdir argon2_objs 2>nul
+for %%f in (argon2 blake2b core encoding opt thread) do (
+  cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src third_party\argon2\src\%%f.c /Fo:argon2_objs\%%f.obj
+  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )
+)
+cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src algo\argon2\argon2_id.c /Fo:argon2_objs\argon2_id.obj
+cl /O2 /c /Ialgo\argon2 /Ithird_party\argon2\include /Ithird_party\argon2\src algo\argon2\argon2d.c /Fo:argon2_objs\argon2d.obj
+lib /OUT:algo\argon2\argon2_all.lib /NOLOGO /MACHINE:X64 argon2_objs\*.obj
+if errorlevel 1 ( echo FAILED: argon2_all.lib & exit /b 1 )
+rmdir /s /q argon2_objs
 
-          # Compile VerusHash (C + C++)
-          echo "  -- algo/verushash/verushash_all.lib"
-          mkdir -p vh_objs
-          "$CC" -O2 -c algo/verushash/haraka_portable.c -o "vh_objs/haraka.obj"
-          "$CXX" -O2 -std=c++17 -c algo/verushash/verushash.cpp -o "vh_objs/vh.obj"
-          "$CXX" -O2 -std=c++17 -c algo/verushash/vh_clhash_portable.cpp -o "vh_objs/vh_cl.obj"
-          "$CXX" -O2 -std=c++17 -c algo/verushash/vh_hash.cpp -o "vh_objs/vh_h.obj"
-          "$AR" rcs algo/verushash/verushash_all.lib vh_objs/*.obj
-          rm -rf vh_objs
+echo === VerusHash ===
+mkdir vh_objs 2>nul
+cl /O2 /c algo\verushash\haraka_portable.c /Fo:vh_objs\haraka.obj
+if errorlevel 1 ( echo FAILED: haraka.obj & exit /b 1 )
+cl /O2 /std:c++17 /c algo\verushash\verushash.cpp /Fo:vh_objs\vh.obj
+if errorlevel 1 ( echo FAILED: vh.obj & exit /b 1 )
+cl /O2 /std:c++17 /c algo\verushash\vh_clhash_portable.cpp /Fo:vh_objs\vh_cl.obj
+if errorlevel 1 ( echo FAILED: vh_cl.obj & exit /b 1 )
+cl /O2 /std:c++17 /c algo\verushash\vh_hash.cpp /Fo:vh_objs\vh_h.obj
+if errorlevel 1 ( echo FAILED: vh_h.obj & exit /b 1 )
+lib /OUT:algo\verushash\verushash_all.lib /NOLOGO /MACHINE:X64 vh_objs\*.obj
+if errorlevel 1 ( echo FAILED: verushash_all.lib & exit /b 1 )
+rmdir /s /q vh_objs
 
-          echo "C modules compiled (Windows MinGW)"
+echo C modules compiled (Windows MSVC)
+BATCH
+          cmd //c "${TMPDIR}/compile_c.bat"
+          rm -f "${TMPDIR}/compile_c.bat"
+          echo "Windows C modules:"
+          ls -lh algo/randomx/*.obj algo/keva/*.obj 2>/dev/null
+          ls -lh algo/argon2/*.lib algo/verushash/*.lib 2>/dev/null
 
       # ------------------------------------------------------------------
       # Build
