@@ -505,7 +505,11 @@ jobs:
             VER_LIB=$(cygpath -w "$PWD/algo/verushash/verushash_all.lib" 2>/dev/null)
              EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
              # MSVC-compiled objects need UCRT import lib; copy to workspace to avoid path-with-spaces issues
-             UCRT_LIB=$(find "/c/Program Files (x86)/Windows Kits" "/c/Program Files/Microsoft Visual Studio" -name "ucrt.lib" 2>/dev/null | head -1)
+             # Must use x64 ucrt.lib, not arm64
+             UCRT_LIB=$(find "/c/Program Files (x86)/Windows Kits" -path "*/x64/ucrt.lib" 2>/dev/null | head -1)
+             if [ -z "$UCRT_LIB" ]; then
+               UCRT_LIB=$(find "/c/Program Files/Microsoft Visual Studio" -path "*/x64/ucrt.lib" 2>/dev/null | head -1)
+             fi
              if [ -n "$UCRT_LIB" ]; then
                cp "$UCRT_LIB" "$PWD/ucrt.lib"
                UCRT_LIB_W=$(cygpath -w "$PWD/ucrt.lib")
