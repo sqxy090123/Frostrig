@@ -347,13 +347,29 @@ jobs:
           echo "Using lib.exe: $LIB_EXE"
 
           # Extract .obj files from POSIX archives, rebuild as COFF with lib.exe
-          mkdir -p /tmp/rx_objs /tmp/keva_objs
-          cd /tmp/rx_objs && ar x /d/a/Frostrig/Frostrig/randomx_src/build/librandomx.a
-          cd /tmp/keva_objs && ar x /d/a/Frostrig/Frostrig/randomx_keva_src/build/librandomx.a
+          # Use Windows temp dir for obj files (lib.exe can't read MSYS /tmp)
+          WIN_TMP="C:/Users/runneradmin/AppData/Local/Temp"
+          RX_OBJS="${WIN_TMP}/rx_objs"
+          KEVA_OBJS="${WIN_TMP}/keva_objs"
+          rm -rf "$RX_OBJS" "$KEVA_OBJS"
+          mkdir -p "$RX_OBJS" "$KEVA_OBJS"
+          cd "$RX_OBJS" && ar x "$(cygpath -w /d/a/Frostrig/Frostrig/randomx_src/build/librandomx.a | sed 's|\\\\|/|g')"
+          cd "$KEVA_OBJS" && ar x "$(cygpath -w /d/a/Frostrig/Frostrig/randomx_keva_src/build/librandomx.a | sed 's|\\\\|/|g')"
           cd /d/a/Frostrig/Frostrig
-          "$LIB_EXE" /OUT:"third_party/randomx/lib/${ARCH}/librandomx.lib" /NOLOGO /MACHINE:X64 /tmp/rx_objs/*.obj
-          "$LIB_EXE" /OUT:"third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib" /NOLOGO /MACHINE:X64 /tmp/keva_objs/*.obj
-          rm -rf /tmp/rx_objs /tmp/keva_objs
+          # Convert obj paths to Windows format for lib.exe
+          RX_OBJ_LIST=""
+          for obj in $(ls "$RX_OBJS"/*.obj 2>/dev/null); do
+            RX_OBJ_LIST="${RX_OBJ_LIST} $(cygpath -w "$obj")"
+          done
+          KEVA_OBJ_LIST=""
+          for obj in $(ls "$KEVA_OBJS"/*.obj 2>/dev/null); do
+            KEVA_OBJ_LIST="${KEVA_OBJ_LIST} $(cygpath -w "$obj")"
+          done
+          RX_LIB_OUT=$(cygpath -w "third_party/randomx/lib/${ARCH}/librandomx.lib")
+          KEVA_LIB_OUT=$(cygpath -w "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib")
+          "$LIB_EXE" /OUT:"$RX_LIB_OUT" /NOLOGO /MACHINE:X64 $RX_OBJ_LIST
+          "$LIB_EXE" /OUT:"$KEVA_LIB_OUT" /NOLOGO /MACHINE:X64 $KEVA_OBJ_LIST
+          rm -rf "$RX_OBJS" "$KEVA_OBJS"
           echo "third_party libs in place:"
           ls -lh third_party/randomx/lib/${ARCH}/
           ls -lh third_party/randomx-keva/lib/${ARCH}/
