@@ -333,9 +333,27 @@ jobs:
           ARCH="windows-x86_64"
           mkdir -p "third_party/randomx/lib/${ARCH}"
           mkdir -p "third_party/randomx-keva/lib/${ARCH}"
-          # MinGW produces librandomx.a (POSIX archive); rename to .lib for FFI compat
-          cp randomx_src/build/librandomx.a "third_party/randomx/lib/${ARCH}/librandomx.lib"
-          cp randomx_keva_src/build/librandomx.a "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
+          # Use llvm-lib from Odin dist to create COFF-compatible .lib archives
+          LLVM_LIB="${ODIN_DIR}/bin/llvm-lib.exe"
+          if [ ! -f "$LLVM_LIB" ]; then
+            echo "llvm-lib not found at ${LLVM_LIB}, trying MSVC lib.exe"
+            LLVM_LIB=""
+          fi
+          if [ -n "$LLVM_LIB" ]; then
+            echo "Using llvm-lib: $LLVM_LIB"
+            # Extract .obj files from POSIX archives and rebuild as COFF
+            mkdir -p /tmp/rx_objs /tmp/keva_objs
+            cd /tmp/rx_objs && ar x /d/a/Frostrig/Frostrig/randomx_src/build/librandomx.a
+            cd /tmp/keva_objs && ar x /d/a/Frostrig/Frostrig/randomx_keva_src/build/librandomx.a
+            cd /d/a/Frostrig/Frostrig
+            "$LLVM_LIB" "third_party/randomx/lib/${ARCH}/librandomx.lib" /tmp/rx_objs/*.obj
+            "$LLVM_LIB" "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib" /tmp/keva_objs/*.obj
+            rm -rf /tmp/rx_objs /tmp/keva_objs
+          else
+            echo "Falling back to cp (POSIX archive, may fail with lld-link)"
+            cp randomx_src/build/librandomx.a "third_party/randomx/lib/${ARCH}/librandomx.lib"
+            cp randomx_keva_src/build/librandomx.a "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib"
+          fi
           echo "third_party libs in place:"
           ls -lh third_party/randomx/lib/${ARCH}/
           ls -lh third_party/randomx-keva/lib/${ARCH}/
