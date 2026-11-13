@@ -29,8 +29,7 @@ void *alloc_aligned_buffer(uint64_t bufSize)
 {
     void *answer = NULL;
 #if defined(_WIN32)
-    answer = _aligned_malloc(bufSize, 16);
-    if (!answer) return NULL;
+    answer = malloc(bufSize);
 #else
     if (posix_memalign(&answer, 16, bufSize))
         return NULL;

@@ -518,8 +518,22 @@ jobs:
               ${PWD}/third_party/randomx/lib/linux-x86_64/librandomx.a \
               ${PWD}/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
           else
-            EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
-              ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib"
+            MSVC_LIB_DIR=""
+            for d in /c/Program\ Files/Microsoft\ Visual\ Studio/*/VC/Tools/MSVC/*/lib/x64; do
+              if [[ -d "$d" ]]; then MSVC_LIB_DIR="$d"; break; fi
+            done
+            if [[ -n "$MSVC_LIB_DIR" ]]; then
+              EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
+                ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib \
+                ${PWD}/algo/argon2/argon2_all.lib \
+                ${PWD}/algo/verushash/verushash_all.lib \
+                ${MSVC_LIB_DIR}/msvcrt.lib ${MSVC_LIB_DIR}/libucrt.lib"
+            else
+              EXTRA_LINKER_FLAGS="${PWD}/third_party/randomx/lib/windows-x86_64/librandomx.lib \
+                ${PWD}/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib \
+                ${PWD}/algo/argon2/argon2_all.lib \
+                ${PWD}/algo/verushash/verushash_all.lib"
+            fi
           fi
 
           if [[ "${{ matrix.mode }}" == "debug" ]]; then
