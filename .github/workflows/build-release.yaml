@@ -353,8 +353,8 @@ jobs:
           KEVA_OBJS="${WIN_TMP}/keva_objs"
           rm -rf "$RX_OBJS" "$KEVA_OBJS"
           mkdir -p "$RX_OBJS" "$KEVA_OBJS"
-          cd "$RX_OBJS" && ar x "$(cygpath -w /d/a/Frostrig/Frostrig/randomx_src/build/librandomx.a | sed 's|\\\\|/|g')"
-          cd "$KEVA_OBJS" && ar x "$(cygpath -w /d/a/Frostrig/Frostrig/randomx_keva_src/build/librandomx.a | sed 's|\\\\|/|g')"
+          cd "$RX_OBJS" && ar x "$(cygpath -w "$(pwd)/randomx_src/build/librandomx.a" | sed 's|\\\\|/|g')"
+          cd "$KEVA_OBJS" && ar x "$(cygpath -w "$(pwd)/randomx_keva_src/build/librandomx.a" | sed 's|\\\\|/|g')"
           cd /d/a/Frostrig/Frostrig
           # Convert obj paths to Windows format for lib.exe
           RX_OBJ_LIST=""
@@ -367,8 +367,21 @@ jobs:
           done
           RX_LIB_OUT=$(cygpath -w "third_party/randomx/lib/${ARCH}/librandomx.lib")
           KEVA_LIB_OUT=$(cygpath -w "third_party/randomx-keva/lib/${ARCH}/librandomx-keva.lib")
-          "$LIB_EXE" /OUT:"$RX_LIB_OUT" /NOLOGO /MACHINE:X64 $RX_OBJ_LIST
-          "$LIB_EXE" /OUT:"$KEVA_LIB_OUT" /NOLOGO /MACHINE:X64 $KEVA_OBJ_LIST
+          LIB_WIN=$(cygpath -w "$LIB_EXE")
+          # Write batch files for lib.exe (Windows native arg parsing)
+          echo "@echo off" > "${WIN_TMP}/build_rx_lib.bat"
+          echo "echo Building RandomX COFF archive..." >> "${WIN_TMP}/build_rx_lib.bat"
+          echo "\"$LIB_WIN\" /OUT:\"$RX_LIB_OUT\" /NOLOGO /MACHINE:X64 $RX_OBJ_LIST" >> "${WIN_TMP}/build_rx_lib.bat"
+          echo "if errorlevel 1 ( echo RandomX lib.exe FAILED & exit /b 1 )" >> "${WIN_TMP}/build_rx_lib.bat"
+          echo "echo RandomX COFF archive OK" >> "${WIN_TMP}/build_rx_lib.bat"
+          echo "@echo off" > "${WIN_TMP}/build_keva_lib.bat"
+          echo "echo Building Keva COFF archive..." >> "${WIN_TMP}/build_keva_lib.bat"
+          echo "\"$LIB_WIN\" /OUT:\"$KEVA_LIB_OUT\" /NOLOGO /MACHINE:X64 $KEVA_OBJ_LIST" >> "${WIN_TMP}/build_keva_lib.bat"
+          echo "if errorlevel 1 ( echo Keva lib.exe FAILED & exit /b 1 )" >> "${WIN_TMP}/build_keva_lib.bat"
+          echo "echo Keva COFF archive OK" >> "${WIN_TMP}/build_keva_lib.bat"
+          cmd //c "${WIN_TMP}/build_rx_lib.bat"
+          cmd //c "${WIN_TMP}/build_keva_lib.bat"
+          rm -f "${WIN_TMP}/build_rx_lib.bat" "${WIN_TMP}/build_keva_lib.bat"
           rm -rf "$RX_OBJS" "$KEVA_OBJS"
           echo "third_party libs in place:"
           ls -lh third_party/randomx/lib/${ARCH}/
