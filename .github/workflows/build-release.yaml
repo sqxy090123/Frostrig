@@ -144,7 +144,7 @@ jobs:
           set -euo pipefail
           # Use MinGW-w64 (pre-installed on GitHub runners) for POSIX-compatible .a output
           # that lld-link handles natively, avoiding MSVC UCRT import lib issues.
-          MINGW_BIN="/c/msys64/mingw64/bin"
+          MINGW_BIN="/c/mingw64/bin"
           export PATH="${MINGW_BIN}:${PATH}"
           echo "MinGW on PATH: $(which x86_64-w64-mingw32-g++)"
           cat > mingw64.cmake <<'CMEOF'
@@ -283,7 +283,7 @@ jobs:
            #define RANDOMX_FREQ_ISTORE        16
            #define RANDOMX_FREQ_NOP            0
            EOF
-          MINGW_BIN="/c/msys64/mingw64/bin"
+          MINGW_BIN="/c/mingw64/bin"
           export PATH="${MINGW_BIN}:${PATH}"
           cmake -G "MinGW Makefiles" -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake \
             -DCMAKE_BUILD_TYPE=Release \
@@ -386,7 +386,7 @@ jobs:
           set -euo pipefail
 
           # Use MinGW-w64 for POSIX-compatible .obj output
-          MINGW_BIN="/c/msys64/mingw64/bin"
+          MINGW_BIN="/c/mingw64/bin"
           export PATH="${MINGW_BIN}:${PATH}"
           CC="${MINGW_BIN}/x86_64-w64-mingw32-gcc"
           CXX="${MINGW_BIN}/x86_64-w64-mingw32-g++"
