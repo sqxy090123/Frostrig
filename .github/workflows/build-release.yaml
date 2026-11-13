@@ -503,8 +503,16 @@ jobs:
             KEVA_LIB=$(cygpath -w "$PWD/third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib" 2>/dev/null)
             ARG_LIB=$(cygpath -w "$PWD/algo/argon2/argon2_all.lib" 2>/dev/null)
             VER_LIB=$(cygpath -w "$PWD/algo/verushash/verushash_all.lib" 2>/dev/null)
-            EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
-            # MinGW RandomX lib uses POSIX-compatible symbols, no UCRT needed
+             EXTRA_LINKER_FLAGS="$RX_LIB $KEVA_LIB $ARG_LIB $VER_LIB"
+             # MSVC-compiled objects need UCRT import lib; find and add it
+             UCRT_LIB=$(find "/c/Program Files (x86)/Windows Kits" "/c/Program Files/Microsoft Visual Studio" -name "ucrt.lib" 2>/dev/null | head -1)
+             if [ -n "$UCRT_LIB" ]; then
+               UCRT_LIB_W=$(cygpath -w "$UCRT_LIB")
+               EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS ${UCRT_LIB_W}"
+               echo "Added UCRT lib: $UCRT_LIB_W"
+             else
+               echo "WARNING: ucrt.lib not found"
+             fi
           fi
 
           echo "EXTRA_LINKER_FLAGS: $EXTRA_LINKER_FLAGS"
