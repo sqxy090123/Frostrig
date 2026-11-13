@@ -353,8 +353,10 @@ jobs:
           KEVA_OBJS="${WIN_TMP}/keva_objs"
           rm -rf "$RX_OBJS" "$KEVA_OBJS"
           mkdir -p "$RX_OBJS" "$KEVA_OBJS"
-          cd "$RX_OBJS" && ar x "$(cygpath -w "$(pwd)/randomx_src/build/librandomx.a" | sed 's|\\\\|/|g')"
-          cd "$KEVA_OBJS" && ar x "$(cygpath -w "$(pwd)/randomx_keva_src/build/librandomx.a" | sed 's|\\\\|/|g')"
+          RX_A="$(pwd)/randomx_src/build/librandomx.a"
+          KEVA_A="$(pwd)/randomx_keva_src/build/librandomx.a"
+          cd "$RX_OBJS" && ar x "$RX_A"
+          cd "$KEVA_OBJS" && ar x "$KEVA_A"
           cd /d/a/Frostrig/Frostrig
           # Convert obj paths to Windows format for lib.exe
           RX_OBJ_LIST=""
