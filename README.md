@@ -4,7 +4,7 @@ frostrig 是用 [Odin](https://odin-lang.org) 实现的多算法 CPU 挖矿客�
 
 ## 特性
 
-- **多算法支持**：RandomX（默认 / WOW / V2 / C64 / V / XEQ / Keva）、Argon2id、Argon2d（16000 / 1000）、VerusHash 2.2 / 3.1、**新增：BLAKE2b、CryptoNight PICO、CryptoNight Heavy/0、GhostRider**
+- **多算法支持**：RandomX（默认 / WOW / V2 / C64 / V / XEQ / Keva）、Argon2id、Argon2d（16000 / 1000）、VerusHash 2.2 / 3.1、**BLAKE2b、CryptoNight PICO、CryptoNight Heavy/0（软件 AES-128 默认，AES-NI 可选）、GhostRider**
 - **多线程**：最高 256 worker，每 worker 独立算法句柄
 - **管道化哈希**：RandomX 系列采用 `first / next / last` 三段式流水线，Argon2 缓存初始化与 VM 执行重叠
 - **大页内存**：Linux `mmap(MAP_HUGETLB)` / Windows `VirtualAlloc(MEM_LARGE_PAGES)`，2 MiB 对齐
@@ -34,7 +34,7 @@ frostrig/
 │   ├── vh31.odin      VerusHash 3.1
 │   ├── blake2b.odin   BLAKE2b (新增)
 │   ├── cn_pico.odin   CryptoNight PICO (新增)
-│   ├── cn_heavy.odin  CryptoNight Heavy/0 (新增)
+│   ├── cn_heavy.odin  CryptoNight Heavy/0 (新增, 软件 AES-128 默认)
 │   ├── ghostrider.odin GhostRider (新增)
 │   ├── plugin.h       插件 C ABI 头文件
 │   └── plugin.odin    插件加载器（dlopen / dlsym）
@@ -281,6 +281,7 @@ odin test .
 | argon2id | ~200 H/s | ~800 H/s | - | 轻量算法 |
 | **BLAKE2b** | ~2.9M H/s | - | **+8.5%** | 新增算法 |
 | **CN-PICO** | ~774K H/s | - | **+1.8%** | 新增算法 |
+| **CN-Heavy/0** | ~70K H/s | - | - | 新增算法（软件 AES 默认） |
 | **GhostRider** | ~739K H/s | - | **-10.5%** ⚠️ | 新增算法 |
 
 *基准值因 CPU / 内存 / 大页配置而异；上述为本开发环境（无 2 GB hugepages）实测。*
@@ -300,10 +301,10 @@ odin test .
 - **性能**: 774K H/s (激进优化后 788K H/s)
 
 ### CryptoNight Heavy/0
-- **类型**: CryptoNight变体
+- **类型**: CryptoNight 变体
 - **内存使用**: 4 MB
-- **特点**: 4 MiB内存池，支持AES-NI指令集
-- **性能**: 待测试
+- **特点**: 4 MiB 内存池 + AES-128-ECB 步骤。AES-128 默认走**可移植软件实现**（无 arch-flag 依赖，跨编译器/目标确定），可选 `FROSTRIG_CN_AESNI`（gcc `-maes`）启用 AES-NI 硬件加速路径；两路径密文一致（已对照 openssl NIST/FIPS 向量验证）
+- **性能**: 软件默认路径约 70K H/s（1 线程，无 2 GB hugepages）
 
 ### GhostRider
 - **类型**: 变色龙哈希算法
