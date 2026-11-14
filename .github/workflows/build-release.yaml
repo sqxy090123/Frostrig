@@ -375,6 +375,10 @@ jobs:
           fi
           echo "Using CFLAGS: $CFLAGS"
 
+          # Platform dlopen/dlsym wrapper (linked via foreign import "./dl.o")
+          echo "  -> platform/dl.o"
+          cc $CFLAGS -c platform/dl.c -o platform/dl.o
+
           # RandomX variant wrappers
           for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c \
                    algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c \
@@ -460,6 +464,9 @@ jobs:
             {
               echo "@echo off"
               echo "call \"${VCVARS_W}\""
+              echo "echo === Platform dl ==="
+              echo "cl $CL_FLAGS /c platform\\dl.c /Fo:platform\\dl.o"
+              echo "if errorlevel 1 ( echo FAILED: dl.o & exit /b 1 )"
               echo "echo === RandomX variant wrappers ==="
               echo "for %%f in (0 wow 2 c64 v xeq) do ("
               echo "  cl $CL_FLAGS /c /Ialgo\\randomx /Ialgo\\keva algo\\randomx\\%%f.c /Fo:algo\\randomx\\%%f.obj"
