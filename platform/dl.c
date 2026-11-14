@@ -17,6 +17,26 @@
 #include <stdio.h>
 #include <string.h>
 
+/*
+ * frostrig_dl_read_ptr reads the 8-byte pointer value stored at (base +
+ * offset) and returns it.  Used by the plugin loader to extract the
+ * function-pointer fields out of a C frostrig_algo_vtable without the
+ * Odin side indexing into C memory (which the Odin compiler rejects).
+ *
+ * This function is platform-independent (just reads 8 bytes from
+ * memory), so it is defined in BOTH the Windows and POSIX branches.
+ */
+void *frostrig_dl_read_ptr(const void *base, size_t offset) {
+	const unsigned char *p = (const unsigned char *)base + offset;
+	unsigned char buf[8];
+	for (int i = 0; i < 8; i++) {
+		buf[i] = p[i];
+	}
+	void *result;
+	memcpy(&result, buf, sizeof(result));
+	return result;
+}
+
 #if defined(_WIN32)
 
 #define WIN32_LEAN_AND_MEAN
@@ -150,23 +170,6 @@ int frostrig_dl_cstr_to_buf(const char *src, char *dst, int cap) {
 		dst[i] = 0;
 	}
 	return i;
-}
-
-/*
- * frostrig_dl_read_ptr reads the 8-byte pointer value stored at (base +
- * offset) and returns it.  Used by the plugin loader to extract the
- * function-pointer fields out of a C frostrig_algo_vtable without the
- * Odin side indexing into C memory (which the Odin compiler rejects).
- */
-void *frostrig_dl_read_ptr(const void *base, size_t offset) {
-	const unsigned char *p = (const unsigned char *)base + offset;
-	unsigned char buf[8];
-	for (int i = 0; i < 8; i++) {
-		buf[i] = p[i];
-	}
-	void *result;
-	memcpy(&result, buf, sizeof(result));
-	return result;
 }
 
 #endif

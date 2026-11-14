@@ -16,6 +16,7 @@ foreign dl_mod {
 	frostrig_dl_error         :: proc() -> rawptr ---
 	frostrig_dl_suffix        :: proc() -> rawptr ---
 	frostrig_dl_cstr_to_buf   :: proc(src: rawptr, dst: rawptr, cap: c.int) -> c.int ---
+	frostrig_dl_read_ptr      :: proc(base: rawptr, offset: c.size_t) -> rawptr ---
 }
 
 // Dl_Handle is an opaque handle to a loaded dynamic library.
@@ -97,21 +98,4 @@ dl_c_from_ptr :: proc(p: rawptr) -> string {
 		return cast(string) buf[:]
 	}
 	return cast(string) buf[:int(n)]
-}
-	src := cast(^byte) p
-	i := 0
-	for {
-		if src[i] == 0 {
-			break
-		}
-		i += 1
-	}
-	if i == 0 {
-		return ""
-	}
-	buf := make([]byte, i)
-	for j in 0 ..< i {
-		buf[j] = src[j]
-	}
-	return cast(string) buf
 }

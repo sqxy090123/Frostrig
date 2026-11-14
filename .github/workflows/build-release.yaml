@@ -47,7 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [linux, windows]
-        mode: [release, debug]
+        mode: [release, debug, aggressive]
         # arch is the single architecture selected via workflow_dispatch
         # input, or amd64 when triggered by a tag.
         arch:
@@ -362,108 +362,150 @@ jobs:
       #   The .o / .obj / .lib files are gitignored; CI compiles fresh
       #   objects for the target platform before the Odin build step.
       # ------------------------------------------------------------------
-      - name: Compile C algo modules (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
+        - name: Compile C algo modules (Linux)
+          if: runner.os == 'Linux'
+          run: |
+            set -euo pipefail
 
-          # RandomX variant wrappers
-          for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c \
-                   algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c \
-                   algo/keva/keva.c; do
-            O="${f%.c}.o"
-            echo "  -> ${O}"
-            cc -O2 -fPIC -c -Ialgo/randomx -Ialgo/keva "${f}" -o "${O}"
-          done
+            # Set C compiler flags based on build mode
+            if [[ "${{ matrix.mode }}" == "aggressive" ]]; then
+              CFLAGS="-O3 -march=native -funroll-loops -fPIC"
+            else
+              CFLAGS="-O2 -fPIC"
+            fi
+            echo "Using CFLAGS: $CFLAGS"
 
-          # Argon2: combine third_party/argon2/src/*.c + algo/argon2/*.c
-          # Remove committed pre-built ELF archives before creating fresh ones.
-          rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
-          echo "  -> algo/argon2/argon2_all.o"
-          mkdir -p /tmp/argon2_objs
-          for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
-                   third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
-                   third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
-            B=$(basename "${f}" .c)
-            cc -O2 -fPIC -c -Ithird_party/argon2/include -Ithird_party/argon2/src \
-               "${f}" -o "/tmp/argon2_objs/${B}.o"
-          done
-          cc -O2 -fPIC -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
-            algo/argon2/argon2_id.c -o /tmp/argon2_objs/argon2_id.o
-          cc -O2 -fPIC -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
-            algo/argon2/argon2d.c -o /tmp/argon2_objs/argon2d.o
-          ar rcs algo/argon2/argon2_all.o /tmp/argon2_objs/*.o
-          rm -rf /tmp/argon2_objs
+            # RandomX variant wrappers
+            for f in algo/randomx/0.c algo/randomx/wow.c algo/randomx/2.c \
+                     algo/randomx/c64.c algo/randomx/v.c algo/randomx/xeq.c \
+                     algo/keva/keva.c; do
+              O="${f%.c}.o"
+              echo "  -> ${O}"
+              cc $CFLAGS -c -Ialgo/randomx -Ialgo/keva "${f}" -o "${O}"
+            done
 
-          # VerusHash: C + C++ sources
-          echo "  -> algo/verushash/verushash_all.o"
-          mkdir -p /tmp/vh_objs
-          cc -O2 -fPIC -c algo/verushash/haraka_portable.c -o /tmp/vh_objs/haraka.o
-          c++ -O2 -fPIC -std=c++11 -c algo/verushash/verushash.cpp -o /tmp/vh_objs/vh.o
-          c++ -O2 -fPIC -std=c++11 -c algo/verushash/vh_clhash_portable.cpp -o /tmp/vh_objs/vh_cl.o
-          c++ -O2 -fPIC -std=c++11 -c algo/verushash/vh_hash.cpp -o /tmp/vh_objs/vh_h.o
-          ar rcs algo/verushash/verushash_all.o /tmp/vh_objs/*.o
-          rm -rf /tmp/vh_objs
+            # BLAKE2b (uses the Argon2-tree blake2b.c)
+            echo "  -> algo/blake2b/blake2b.o"
+            cc $CFLAGS -c -Ithird_party/argon2/include -Ithird_party/argon2/src \
+               -Ialgo/blake2b algo/blake2b/blake2b.c -o algo/blake2b/blake2b.o
 
-          echo "C modules compiled"
+            # CryptoNight (pico + heavy share one translation unit)
+            echo "  -> algo/cryptonight/cryptonight.o"
+            cc $CFLAGS -c -Ithird_party/argon2/include \
+               -Ithird_party/argon2/src -Ialgo/cryptonight \
+               algo/cryptonight/cryptonight.c -o algo/cryptonight/cryptonight.o
 
-      - name: Compile C algo modules (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Use MSVC cl.exe via vcvars64.bat batch file
-          VCVARS=$(find "/c/Program Files/Microsoft Visual Studio" -name "vcvars64.bat" 2>/dev/null | head -1)
-          VCVARS_W=$(cygpath -w "$VCVARS")
-          TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
+            # GhostRider (chameleon hash, uses BLAKE2b from the Argon2 tree)
+            echo "  -> algo/ghostrider/ghostrider.o"
+            cc $CFLAGS -c -Ithird_party/argon2/include -Ithird_party/argon2/src \
+               -Ialgo/ghostrider algo/ghostrider/ghostrider.c -o algo/ghostrider/ghostrider.o
 
-          # Remove committed pre-built ELF archives
-          rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
-          rm -f algo/randomx/*.o algo/keva/*.o
-          rm -f algo/argon2/*.lib algo/verushash/*.lib
-          mkdir -p algo/argon2 algo/verushash
+           # Argon2: combine third_party/argon2/src/*.c + algo/argon2/*.c
+           # Remove committed pre-built ELF archives before creating fresh ones.
+           rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
+           echo "  -> algo/argon2/argon2_all.o"
+           mkdir -p /tmp/argon2_objs
+           for f in third_party/argon2/src/argon2.c third_party/argon2/src/blake2b.c \
+                    third_party/argon2/src/core.c third_party/argon2/src/encoding.c \
+                    third_party/argon2/src/opt.c third_party/argon2/src/thread.c; do
+             B=$(basename "${f}" .c)
+             cc -O2 -fPIC -c -Ithird_party/argon2/include -Ithird_party/argon2/src \
+                "${f}" -o "/tmp/argon2_objs/${B}.o"
+           done
+           cc -O2 -fPIC -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
+             algo/argon2/argon2_id.c -o /tmp/argon2_objs/argon2_id.o
+           cc -O2 -fPIC -c -Ialgo/argon2 -Ithird_party/argon2/include -Ithird_party/argon2/src \
+             algo/argon2/argon2d.c -o /tmp/argon2_objs/argon2d.o
+           ar rcs algo/argon2/argon2_all.o /tmp/argon2_objs/*.o
+           rm -rf /tmp/argon2_objs
 
-           {
-             echo "@echo off"
-             echo "call \"${VCVARS_W}\""
-             echo "echo === RandomX variant wrappers ==="
-             echo "for %%f in (0 wow 2 c64 v xeq) do ("
-             echo "  cl /O2 /c /Ialgo\\randomx /Ialgo\\keva algo\\randomx\\%%f.c /Fo:algo\\randomx\\%%f.obj"
-             echo "  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )"
-             echo ")"
-             echo "cl /O2 /c /Ialgo\\randomx /Ialgo\\keva algo\\keva\\keva.c /Fo:algo\\keva\\keva.obj"
-             echo "if errorlevel 1 ( echo FAILED: keva.obj & exit /b 1 )"
-             echo "echo === Argon2 ==="
-             echo "mkdir argon2_objs 2>nul"
-             echo "for %%f in (argon2 blake2b core encoding opt thread) do ("
-             echo "  cl /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src third_party\\argon2\\src\\%%f.c /Fo:argon2_objs\\%%f.obj"
-             echo "  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )"
-             echo ")"
-             echo "cl /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2_id.c /Fo:argon2_objs\\argon2_id.obj"
-             echo "cl /O2 /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2d.c /Fo:argon2_objs\\argon2d.obj"
-             echo "lib /OUT:algo\\argon2\\argon2_all.lib /NOLOGO /MACHINE:X64 argon2_objs\\*.obj"
-             echo "if errorlevel 1 ( echo FAILED: argon2_all.lib & exit /b 1 )"
-             echo "rmdir /s /q argon2_objs"
-             echo "echo === VerusHash ==="
-             echo "mkdir vh_objs 2>nul"
-             echo "cl /O2 /c algo\\verushash\\haraka_portable.c /Fo:vh_objs\\haraka.obj"
-             echo "if errorlevel 1 ( echo FAILED: haraka.obj & exit /b 1 )"
-             echo "cl /O2 /std:c++17 /c algo\\verushash\\verushash.cpp /Fo:vh_objs\\vh.obj"
-             echo "if errorlevel 1 ( echo FAILED: vh.obj & exit /b 1 )"
-             echo "cl /O2 /std:c++17 /c algo\\verushash\\vh_clhash_portable.cpp /Fo:vh_objs\\vh_cl.obj"
-             echo "if errorlevel 1 ( echo FAILED: vh_cl.obj & exit /b 1 )"
-             echo "cl /O2 /std:c++17 /c algo\\verushash\\vh_hash.cpp /Fo:vh_objs\\vh_h.obj"
-             echo "if errorlevel 1 ( echo FAILED: vh_h.obj & exit /b 1 )"
-             echo "lib /OUT:algo\\verushash\\verushash_all.lib /NOLOGO /MACHINE:X64 vh_objs\\*.obj"
-             echo "if errorlevel 1 ( echo FAILED: verushash_all.lib & exit /b 1 )"
-             echo "rmdir /s /q vh_objs"
-             echo "echo C module build OK"
-           } > "${TMPDIR}/compile_c.bat"
-           cmd //c "${TMPDIR}/compile_c.bat"
-          rm -f "${TMPDIR}/compile_c.bat"
-          echo "Windows C modules:"
-          ls -lh algo/randomx/*.obj algo/keva/*.obj 2>/dev/null
-          ls -lh algo/argon2/*.lib algo/verushash/*.lib 2>/dev/null
+           # VerusHash: C + C++ sources
+           echo "  -> algo/verushash/verushash_all.o"
+           mkdir -p /tmp/vh_objs
+           cc -O2 -fPIC -c algo/verushash/haraka_portable.c -o /tmp/vh_objs/haraka.o
+           c++ -O2 -fPIC -std=c++11 -c algo/verushash/verushash.cpp -o /tmp/vh_objs/vh.o
+           c++ -O2 -fPIC -std=c++11 -c algo/verushash/vh_clhash_portable.cpp -o /tmp/vh_objs/vh_cl.o
+           c++ -O2 -fPIC -std=c++11 -c algo/verushash/vh_hash.cpp -o /tmp/vh_objs/vh_h.o
+           ar rcs algo/verushash/verushash_all.o /tmp/vh_objs/*.o
+           rm -rf /tmp/vh_objs
+
+           echo "C modules compiled"
+
+       - name: Compile C algo modules (Windows)
+         if: runner.os == 'Windows'
+         shell: bash
+         run: |
+           set -euo pipefail
+           # Use MSVC cl.exe via vcvars64.bat batch file
+           VCVARS=$(find "/c/Program Files/Microsoft Visual Studio" -name "vcvars64.bat" 2>/dev/null | head -1)
+           VCVARS_W=$(cygpath -w "$VCVARS")
+            TMPDIR="C:/Users/runneradmin/AppData/Local/Temp"
+
+            # Set C compiler flags based on build mode
+            if [[ "${{ matrix.mode }}" == "aggressive" ]]; then
+              CL_FLAGS="/O2 /arch:AVX2"
+            else
+              CL_FLAGS="/O2"
+            fi
+            echo "Using CL_FLAGS: $CL_FLAGS"
+
+            # Remove committed pre-built ELF archives
+            rm -f algo/argon2/argon2_all.o algo/verushash/verushash_all.o
+            rm -f algo/randomx/*.o algo/keva/*.o
+            rm -f algo/argon2/*.lib algo/verushash/*.lib
+            mkdir -p algo/argon2 algo/verushash
+
+             {
+               echo "@echo off"
+               echo "call \"${VCVARS_W}\""
+               echo "echo === RandomX variant wrappers ==="
+               echo "for %%f in (0 wow 2 c64 v xeq) do ("
+               echo "  cl $CL_FLAGS /c /Ialgo\\randomx /Ialgo\\keva algo\\randomx\\%%f.c /Fo:algo\\randomx\\%%f.obj"
+               echo "  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )"
+               echo ")"
+               echo "cl $CL_FLAGS /c /Ialgo\\randomx /Ialgo\\keva algo\\keva\\keva.c /Fo:algo\\keva\\keva.obj"
+               echo "if errorlevel 1 ( echo FAILED: keva.obj & exit /b 1 )"
+               echo "echo === BLAKE2b ==="
+               echo "cl $CL_FLAGS /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\blake2b algo\\blake2b\\blake2b.c /Fo:algo\\blake2b\\blake2b.obj"
+               echo "if errorlevel 1 ( echo FAILED: blake2b.obj & exit /b 1 )"
+               echo "echo === CryptoNight ==="
+               echo "cl $CL_FLAGS /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\cryptonight algo\\cryptonight\\cryptonight.c /Fo:algo\\cryptonight\\cryptonight.obj"
+               echo "if errorlevel 1 ( echo FAILED: cryptonight.obj & exit /b 1 )"
+               echo "echo === GhostRider ==="
+               echo "cl $CL_FLAGS /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\ghostrider algo\\ghostrider\\ghostrider.c /Fo:algo\\ghostrider\\ghostrider.obj"
+               echo "if errorlevel 1 ( echo FAILED: ghostrider.obj & exit /b 1 )"
+               echo "echo === Argon2 ==="
+               echo "mkdir argon2_objs 2>nul"
+               echo "for %%f in (argon2 blake2b core encoding opt thread) do ("
+               echo "  cl $CL_FLAGS /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src third_party\\argon2\\src\\%%f.c /Fo:argon2_objs\\%%f.obj"
+               echo "  if errorlevel 1 ( echo FAILED: %%f.obj & exit /b 1 )"
+               echo ")"
+               echo "cl $CL_FLAGS /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2_id.c /Fo:argon2_objs\\argon2_id.obj"
+               echo "cl $CL_FLAGS /c /Ialgo\\argon2 /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src algo\\argon2\\argon2d.c /Fo:argon2_objs\\argon2d.obj"
+               echo "lib /OUT:algo\\argon2\\argon2_all.lib /NOLOGO /MACHINE:X64 argon2_objs\\*.obj"
+               echo "if errorlevel 1 ( echo FAILED: argon2_all.lib & exit /b 1 )"
+               echo "rmdir /s /q argon2_objs"
+               echo "echo === VerusHash ==="
+               echo "mkdir vh_objs 2>nul"
+               echo "cl $CL_FLAGS /c algo\\verushash\\haraka_portable.c /Fo:vh_objs\\haraka.obj"
+               echo "if errorlevel 1 ( echo FAILED: haraka.obj & exit /b 1 )"
+               echo "cl $CL_FLAGS /std:c++17 /c algo\\verushash\\verushash.cpp /Fo:vh_objs\\vh.obj"
+               echo "if errorlevel 1 ( echo FAILED: vh.obj & exit /b 1 )"
+               echo "cl $CL_FLAGS /std:c++17 /c algo\\verushash\\vh_clhash_portable.cpp /Fo:vh_objs\\vh_cl.obj"
+               echo "if errorlevel 1 ( echo FAILED: vh_cl.obj & exit /b 1 )"
+               echo "cl $CL_FLAGS /std:c++17 /c algo\\verushash\\vh_hash.cpp /Fo:vh_objs\\vh_h.obj"
+               echo "if errorlevel 1 ( echo FAILED: vh_h.obj & exit /b 1 )"
+               echo "lib /OUT:algo\\verushash\\verushash_all.lib /NOLOGO /MACHINE:X64 vh_objs\\*.obj"
+               echo "if errorlevel 1 ( echo FAILED: verushash_all.lib & exit /b 1 )"
+               echo "rmdir /s /q vh_objs"
+               echo "echo C module build OK"
+             } > "${TMPDIR}/compile_c.bat"
+             cmd //c "${TMPDIR}/compile_c.bat"
+            rm -f "${TMPDIR}/compile_c.bat"
+            echo "Windows C modules:"
+            ls -lh algo/randomx/*.obj algo/keva/*.obj 2>/dev/null
+            ls -lh algo/blake2b/*.obj algo/cryptonight/*.obj algo/ghostrider/*.obj 2>/dev/null
+            ls -lh algo/argon2/*.lib algo/verushash/*.lib 2>/dev/null
 
       # ------------------------------------------------------------------
       # Build
@@ -525,17 +567,22 @@ jobs:
           ls -lh ${PWD}/algo/argon2/argon2_all.lib 2>/dev/null || true
           ls -lh ${PWD}/algo/verushash/verushash_all.lib 2>/dev/null || true
 
-          if [[ "${{ matrix.mode }}" == "debug" ]]; then
-            "${ODIN}" build . -target:"$TARGET" -microarch:generic \
-              -debug \
-              -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
-              -out:"$OUT"
-          else
-            "${ODIN}" build . -target:"$TARGET" -microarch:generic \
-              -o:speed \
-              -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
-              -out:"$OUT"
-          fi
+           if [[ "${{ matrix.mode }}" == "debug" ]]; then
+             "${ODIN}" build . -target:"$TARGET" -microarch:generic \
+               -debug \
+               -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
+               -out:"$OUT"
+           elif [[ "${{ matrix.mode }}" == "aggressive" ]]; then
+             "${ODIN}" build . -target:"$TARGET" -microarch:native \
+               -o:aggressive \
+               -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
+               -out:"$OUT"
+           else
+             "${ODIN}" build . -target:"$TARGET" -microarch:generic \
+               -o:speed \
+               -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
+               -out:"$OUT"
+           fi
 
           echo "Built: $OUT"
           ls -lh "$OUT"

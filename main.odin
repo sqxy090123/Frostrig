@@ -21,6 +21,10 @@ register_algos :: proc() -> core.Error {
 		algo.argon2d1000_entry,
 		algo.vh22_entry,
 		algo.vh31_entry,
+		algo.blake2b_entry,
+		algo.cn_pico_entry,
+		algo.cn_heavy_entry,
+		algo.ghostrider_entry,
 	}
 	for e in entries {
 		err := algo.register(e)

@@ -49,6 +49,10 @@ enum frostrig_algo_id {
 	FROSTRIG_ALGO_ARGON2D_1000  = 9,
 	FROSTRIG_ALGO_VH22          = 10,
 	FROSTRIG_ALGO_VH31          = 11,
+	FROSTRIG_ALGO_BLAKE2B       = 13,
+	FROSTRIG_ALGO_CN_PICO       = 14,
+	FROSTRIG_ALGO_CN_HEAVY_0    = 15,
+	FROSTRIG_ALGO_GHOSTRIDER    = 16,
 	/* First plugin-reserved id.  Plugins should use >= this value. */
 	FROSTRIG_ALGO_PLUGIN_BASE   = 1000
 };
