@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <blake2.h>
+#include "blake2.h"
 
 /* AES-NI */
 #ifdef _MSC_VER

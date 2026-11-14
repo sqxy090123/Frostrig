@@ -390,8 +390,10 @@ jobs:
                -Ialgo/blake2b algo/blake2b/blake2b.c -o algo/blake2b/blake2b.o
 
             # CryptoNight (pico + heavy share one translation unit)
+            # -maes: AES-NI intrinsics (wmmintrin.h) require the aes target;
+            # -march=native implies it, plain -O2 does not.
             echo "  -> algo/cryptonight/cryptonight.o"
-            cc $CFLAGS -c -Ithird_party/argon2/include \
+            cc $CFLAGS -maes -c -Ithird_party/argon2/include \
                -Ithird_party/argon2/src -Ialgo/cryptonight \
                algo/cryptonight/cryptonight.c -o algo/cryptonight/cryptonight.o
 

@@ -100,13 +100,17 @@ Entries discovered by the Agent during task execution should follow this format:
   - `find ... | xargs dirname` 在 GitHub Actions bash 里若 `find` 无输出会触发 `xargs: missing operand` 使步骤退出码 123；`find` 的 `-path` 过滤应直接匹配完整文件名（如 `*/ucrt/x64/ucrt.lib`）而非只匹配目录名 `*/x64`。
 
 [Project Knowledge Summary]
-- Date: 2026-11-09
-- Context: Discovered by Agent while building and running the frostrig binary
+- Date: 2026-11-14
+- Context: Discovered by Agent while building and running the frostrig binary; updated 2026-11-14 after adding 4 new C algo modules
 - Category: Build Methods
 - Instructions:
-  - 构建命令：`odin build -out:frostrig -extra-linker-flags="-lstdc++ -lpthread -ldl -lm" .`（在 `/workspace` 下）
-  - 验证 `odin check . -no-entry-point`（rc=0）通过后再 build
-  - ASan 调试：`odin build -out:frostrig -sanitize=address -extra-linker-flags="-lstdc++ -lpthread -ldl -lm" .`
+  - 完整本地构建脚本：`./build-fix.sh`（在 `/workspace` 下），镜像 CI Linux 构建流程（C 模块 → ar 归档 → Odin 链接）
+  - Odin 链接必须附带 RandomX 静态库：`-extra-linker-flags="-lstdc++ -lpthread -ldl -lm ${PWD}/third_party/randomx/lib/linux-x86_64/librandomx.a ${PWD}/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"`
+  - cryptonight.c 使用 AES-NI 内建函数（wmmintrin.h），gcc 基线 x86-64 无 aes 目标，须加 `-maes`（`-march=native` 隐含）；MSVC 侧用 `/arch:AVX2`
+  - C 模块 include 依赖 argon2 树头文件：`-Ithird_party/argon2/include -Ithird_party/argon2/src -Ialgo/<name>`；MSVC 下源文件用 `#include "blake2.h"`（引号形式）以便先命中本地副本
+  - argon2_all.o / verushash_all.o 用 `ar rcs` 合成（third_party 源 + algo 包装层）；verushash 的 C++ 源用 `c++ -std=c++11`
+  - 运行测试：`odin test ./tests -define:ODIN_TEST_FANCY=false`（23 个测试）；验证 `odin check . -no-entry-point`（rc=0）后再 build
+  - 算法冒烟测试：`./frostrig -a <algo> --bench --bench-count 3`（无参数直接运行会进入挖矿循环挂住，需 timeout）
 
 [Project Knowledge Summary]
 - Date: 2026-11-13
@@ -117,6 +121,16 @@ Entries discovered by the Agent during task execution should follow this format:
   - 真正有效的提升方向只有宿主机 2GB 大页（`vm.nr_hugepages` + Large_Pages flag），属运维层面，超出代码层微观优化。
   - C 批量流水线契约：`frostrig_rx0_hash_pipeline(ctx,input,size,start_nonce,count,outputs)` 写 count-1 个 hash，末个 pending，需 `frostrig_rx0_hash_last` 排空；`Algo_Entry.pipeline` 为可选字段（nil 则回退逐 hash 循环），`mine_slice`/`bench_worker_data` 已接入 pipeline 分支。
   - Odin FFI 注意：`c.uint64` 不存在，须用 `c.uint64_t`；FFI 包装函数放 `ffi/randomx_0.odin`（`rx0_hash_pipeline` 签名 `ctx,input,start_nonce:u64,count:u64,outputs:[]u8`）。
+
+[User Instruction Summary]
+- Date: 2026-11-14
+- Context: GitHub authentication and workflow management during Frostrig build process
+- Instructions:
+  - Use `git credential fill` to authenticate with GitHub CLI for workflow operations
+  - This command extracts GitHub credentials from the configured credential helper
+  - Required for manual GitHub Actions workflow triggering via `gh workflow run`
+  - Usage pattern: `echo -e "protocol=https\nhost=api.github.com\n" | git credential fill | grep ^password= | cut -d= -f2` to extract token
+  - Alternative: Set `GH_TOKEN` environment variable with personal access token
 
 [Project Knowledge Summary]
 - Date: 2026-11-13
