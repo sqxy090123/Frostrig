@@ -478,7 +478,7 @@ jobs:
               echo "cl $CL_FLAGS /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\blake2b algo\\blake2b\\blake2b.c /Fo:algo\\blake2b\\blake2b.obj"
               echo "if errorlevel 1 ( echo FAILED: blake2b.obj & exit /b 1 )"
               echo "echo === CryptoNight ==="
-              echo "cl $CL_FLAGS /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\cryptonight algo\\cryptonight\\cryptonight.c /Fo:algo\\cryptonight\\cryptonight.obj"
+              echo "cl $CL_FLAGS /arch:AVX2 /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\cryptonight algo\\cryptonight\\cryptonight.c /Fo:algo\\cryptonight\\cryptonight.obj"
               echo "if errorlevel 1 ( echo FAILED: cryptonight.obj & exit /b 1 )"
               echo "echo === GhostRider ==="
               echo "cl $CL_FLAGS /c /Ithird_party\\argon2\\include /Ithird_party\\argon2\\src /Ialgo\\ghostrider algo\\ghostrider\\ghostrider.c /Fo:algo\\ghostrider\\ghostrider.obj"
