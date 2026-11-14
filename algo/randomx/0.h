@@ -66,7 +66,19 @@ int frostrig_rx0_hash_last(frostrig_rx0_ctx *ctx, void *output);
  * Re-seed the cache with a new key.  Call before each new job.
  */
 int frostrig_rx0_prepare(frostrig_rx0_ctx *ctx,
-                        const void *key, size_t key_size);
+                         const void *key, size_t key_size);
+
+/*
+ * Batch-pipeline `count` sequential-nonce hashes in one call.
+ * Nonce start_nonce + i is appended to `input` as 8 little-endian bytes;
+ * the i-th hash is written to outputs + i*32 for i in [0, count-2].
+ * The final (count-1)-th hash is left pending; drain with
+ * frostrig_rx0_hash_last if needed.  Returns 0 on success, -1 on error.
+ */
+int frostrig_rx0_hash_pipeline(frostrig_rx0_ctx *ctx,
+                               const void *input, size_t input_size,
+                               uint64_t start_nonce, size_t count,
+                               void *outputs);
 
 /*
  * Get the optimal flags for the current machine.

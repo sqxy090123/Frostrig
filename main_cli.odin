@@ -18,6 +18,7 @@ import fmt "core:fmt"
 		bench_count:  u64,
 		list_algos:   bool,
 		huge_pages:   bool,
+		plugin_paths: [dynamic]string,
 	}
 
 	default_cli_config :: proc() -> Cli_Config {
@@ -137,6 +138,16 @@ parse_single_flag :: proc(
 		i^ += 1
 	} else if arg == "--list-algos" {
 		config.list_algos = true
+	} else if arg == "--plugin" {
+		v, ok := next_value(argv, i^)
+		if ok == false {
+			return "missing value for --plugin"
+		}
+		n, _ := append(&config.plugin_paths, v)
+		if n != 1 {
+			return "failed to record --plugin path"
+		}
+		i^ += 1
 	} else if arg == "--no-huge-pages" {
 		config.huge_pages = false
 	} else {

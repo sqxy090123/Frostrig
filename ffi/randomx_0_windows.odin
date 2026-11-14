@@ -23,8 +23,8 @@ foreign rx0_mod {
 	frostrig_rx0_hash_first    :: proc(ctx: rawptr, input: rawptr, input_size: c.size_t) -> c.int ---
 	frostrig_rx0_hash_next     :: proc(ctx: rawptr, next_input: rawptr, next_input_size: c.size_t, output: rawptr) -> c.int ---
 	frostrig_rx0_hash_last     :: proc(ctx: rawptr, output: rawptr) -> c.int ---
+	frostrig_rx0_hash_pipeline :: proc(ctx: rawptr, input: rawptr, input_size: c.size_t, start_nonce: c.uint64_t, count: c.size_t, outputs: rawptr) -> c.int ---
 }
-
 @(default_calling_convention = "c")
 foreign rxwow_mod {
 	frostrig_rx_wow_optimal_flags :: proc() -> c.int ---

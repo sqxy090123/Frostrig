@@ -107,3 +107,27 @@ Entries discovered by the Agent during task execution should follow this format:
   - 构建命令：`odin build -out:frostrig -extra-linker-flags="-lstdc++ -lpthread -ldl -lm" .`（在 `/workspace` 下）
   - 验证 `odin check . -no-entry-point`（rc=0）通过后再 build
   - ASan 调试：`odin build -out:frostrig -sanitize=address -extra-linker-flags="-lstdc++ -lpthread -ldl -lm" .`
+
+[Project Knowledge Summary]
+- Date: 2026-11-13
+- Context: Discovered by Agent while optimizing rx/0 via RandomX pipeline (first/next/last batching)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - rx/0 性能瓶颈是 Argon2 缓存初始化 + `randomx_get_flags()` 无 LARGE_PAGES（0x6a）。Argon2 init 强顺序依赖（每 block 依赖前一 block），无法跨 hash 重叠，因此 `calculate_hash_first/next/last` 双缓冲收益被吃掉，实测仅 +1.5~3.2%（1线程 37.7→38.9，4线程 74.7→75.8 H/s），远低于理论 20-40%。
+  - 真正有效的提升方向只有宿主机 2GB 大页（`vm.nr_hugepages` + Large_Pages flag），属运维层面，超出代码层微观优化。
+  - C 批量流水线契约：`frostrig_rx0_hash_pipeline(ctx,input,size,start_nonce,count,outputs)` 写 count-1 个 hash，末个 pending，需 `frostrig_rx0_hash_last` 排空；`Algo_Entry.pipeline` 为可选字段（nil 则回退逐 hash 循环），`mine_slice`/`bench_worker_data` 已接入 pipeline 分支。
+  - Odin FFI 注意：`c.uint64` 不存在，须用 `c.uint64_t`；FFI 包装函数放 `ffi/randomx_0.odin`（`rx0_hash_pipeline` 签名 `ctx,input,start_nonce:u64,count:u64,outputs:[]u8`）。
+
+[Project Knowledge Summary]
+- Date: 2026-11-13
+- Context: Discovered by Agent while implementing plugin ABI and FFI
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - Odin FFI cannot directly index C memory (^byte) - must use C helper functions to read data
+  - C function pointers in vtable must be read with frostrig_dl_read_ptr (reads *(base+offset))
+  - Odin function pointer types: c_*_fn is a function literal type, not a pointer type
+  - Call C function pointers with cast(c_*_fn) pe.*_fn (not ^c_*_fn or *c_*_fn)
+  - C vtable struct layout: frostrig_algo_info (32 bytes) + 5x8-byte function pointers
+  - Plugin ID 1000 (FROSTRIG_ALGO_PLUGIN_BASE) works correctly with linear scan plugin_forward
+  - randomx_alloc_cache with 2GB dataset works in both main thread and worker threads
+  - demo plugin wraps rx/0 and achieves 44.2 H/s (1-thread) / 73.4 H/s (4-threads), matching built-in rx/0 performance

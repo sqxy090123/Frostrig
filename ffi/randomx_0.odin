@@ -124,3 +124,26 @@ rx0_hash_last :: proc(ctx: Rx0_Context, output: []u8) -> core.Error {
 	}
 	return .None
 }
+
+// rx0_hash_pipeline batches `count` sequential-nonce hashes into one C call
+// using the RandomX first/next/last pipeline.  `outputs` must be at least
+// count*32 bytes; the C side writes count-1 hashes and leaves the final one
+// pending (drain with rx0_hash_last).  input: blob (nonce appended by the C
+// side).
+rx0_hash_pipeline :: proc(ctx: Rx0_Context, input: []u8, start_nonce: u64, count: u64, outputs: []u8) -> core.Error {
+	if ctx._ptr == nil {
+		return .Ffi_Handle_Invalid
+	}
+	if len(input) == 0 || count == 0 {
+		return .Invalid_Argument
+	}
+	if len(outputs) < int(count)*32 {
+		return .Invalid_Argument
+	}
+	r := frostrig_rx0_hash_pipeline(ctx._ptr, &input[0], c.size_t(len(input)),
+		c.uint64_t(start_nonce), c.size_t(count), &outputs[0])
+	if r != 0 {
+		return .Ffi_Call_Failed
+	}
+	return .None
+}

@@ -143,3 +143,48 @@ int frostrig_rx0_hash_last(frostrig_rx0_ctx *ctx, void *output)
     randomx_calculate_hash_last(ctx->vm, output);
     return 0;
 }
+
+/*
+ * frostrig_rx0_hash_pipeline batches `count` sequential-nonce hashes into a
+ * single C call so the Odin side pays FFI overhead once instead of `count`
+ * times.  Nonce n (0-based within the batch) is appended as 8 little-endian
+ * bytes after `input`.  Outputs are written contiguously to `outputs`
+ * (count * 32 bytes).  Uses the RandomX first/next/last pipeline so the
+ * Argon2 cache-init of hash[i+1] overlaps the superscalar VM execution of
+ * hash[i].  The final hash (the last one computed) is not produced here;
+ * the caller drains it with frostrig_rx0_hash_last if it needs it.
+ */
+int frostrig_rx0_hash_pipeline(frostrig_rx0_ctx *ctx,
+                               const void *input, size_t input_size,
+                               uint64_t start_nonce, size_t count,
+                               void *outputs)
+{
+    if (ctx == NULL || ctx->vm == NULL || input == NULL || outputs == NULL || count == 0)
+        return -1;
+
+    /* Allocate a scratch buffer sized for the longest input + 8-byte nonce. */
+    size_t buf_len = input_size + 8;
+    unsigned char *buf = (unsigned char *)malloc(buf_len);
+    if (buf == NULL)
+        return -1;
+    memcpy(buf, input, input_size);
+
+    /* Prime the pipeline with the first nonce. */
+    uint64_t nonce = start_nonce;
+    for (int i = 0; i < 8; i++)
+        buf[input_size + i] = (unsigned char)((nonce >> (i * 8)) & 0xff);
+    randomx_calculate_hash_first(ctx->vm, buf, buf_len);
+    nonce++;
+
+    /* Steady state: each call returns the previous hash and primes the next. */
+    for (size_t i = 0; i + 1 < count; i++) {
+        randomx_calculate_hash_next(ctx->vm, buf, buf_len, (unsigned char *)outputs + i * 32);
+        for (int j = 0; j < 8; j++)
+            buf[input_size + j] = (unsigned char)((nonce >> (j * 8)) & 0xff);
+        nonce++;
+    }
+    /* The last hash's output is NOT written here; caller drains via hash_last. */
+
+    free(buf);
+    return 0;
+}

@@ -31,6 +31,17 @@ register_algos :: proc() -> core.Error {
 	return .None
 }
 
+// register_plugin_algos loads every shared library in paths, registers its
+// algorithm vtable in the global registry, and keeps the handles alive in
+// the plugin registry so the thunks stay valid for the process lifetime.
+register_plugin_algos :: proc(paths: []string) -> core.Error {
+	if len(paths) == 0 {
+		return .None
+	}
+	_, err := algo.load_plugin_paths(paths)
+	return err
+}
+
 	print_usage :: proc(prog: string) {
 		fmt.printfln("usage: %s [options]", prog)
 		fmt.printfln("")
@@ -47,6 +58,7 @@ register_algos :: proc() -> core.Error {
 		fmt.printfln("      --no-gui                run without GUI")
 		fmt.printfln("      --list-algos            list registered algorithms and exit")
 		fmt.printfln("      --bench                 run benchmark and exit")
+		fmt.printfln("      --plugin <path>         load an algorithm plugin (.so/.dll); may repeat")
 	}
 
 // os_args returns the full argv slice including the program name at index 0.
@@ -69,6 +81,16 @@ main :: proc() {
 		os.exit(1)
 	}
 
+	// Load any user-supplied algorithm plugins before resolving the
+	// requested algorithm, so plugin-provided names are visible to
+	// resolve_algo.  Plugins that fail to load are skipped (logged by
+	// the platform layer), never fatal.
+	perr := register_plugin_algos(config.plugin_paths[:])
+	if perr != .None {
+		fmt.printfln("failed to load plugin algorithms: %v", perr)
+		os.exit(1)
+	}
+
 	if config.algo_name == "" {
 		config.algo_name = "randomx"
 	}
@@ -85,9 +107,9 @@ main :: proc() {
 	}
 
 	miner_cfg := build_miner_config(config, a_id)
-	pool, perr := worker.create(miner_cfg)
-	if perr != .None {
-		fmt.printfln("pool init failed: %v", perr)
+	pool, pool_err := worker.create(miner_cfg)
+	if pool_err != .None {
+		fmt.printfln("pool init failed: %v", pool_err)
 		os.exit(1)
 	}
 
@@ -100,6 +122,7 @@ main :: proc() {
 	if config.bench {
 		worker.benchmark(&pool, config.bench_count)
 		worker.stop(&pool)
+		algo.unload_all_plugins()
 		return
 	}
 

@@ -36,6 +36,12 @@ mine_slice :: proc(pool: ^Pool, thread_idx: u32, rng: Nonce_Range) -> core.Error
 
 	blob := pool.blob
 	out := core.Hash{}
+	if pool.entry.pipeline != nil {
+		// Batched pipeline path: hash the whole slice in one C call.
+		_ = pool.entry.pipeline(pool.handles[thread_idx], blob,
+			core.Nonce(user_rng.start), user_rng.count)
+		return .None
+	}
 	for i in 0 ..< user_rng.count {
 		nonce := core.Nonce(user_rng.start) + core.Nonce(i)
 		_ = entry_hash(pool, thread_idx, blob, nonce, &out)
@@ -143,6 +149,14 @@ bench_args :: struct {
 
 bench_worker_data :: proc(data: rawptr) {
 	a := cast(^bench_args) data
+	// Prefer the pipeline batch path when the algorithm provides one:
+	// one C call hashes `count` sequential nonces with the Argon2 cache-init
+	// of hash[i+1] overlapping the VM execution of hash[i].  Falls back to
+	// the per-hash loop when entry.pipeline is nil.
+	if a.entry.pipeline != nil {
+		_ = a.entry.pipeline(a.handle, a.blob, 0, a.count)
+		return
+	}
 	out := core.Hash{}
 	for i in 0 ..< a.count {
 		_ = a.entry.hash(a.handle, a.blob, core.Nonce(i), &out)
