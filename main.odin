@@ -152,6 +152,12 @@ main :: proc() {
 	}
 	trace_step("pool-start-done")
 
+	// enable mining-loop diagnostics when FROSTRIG_DEBUG is set
+	debug_buf := make([]u8, 32)
+	if os.get_env_buf(debug_buf, "FROSTRIG_DEBUG") != "" {
+		pool.debug = true
+	}
+
 	if config.bench {
 		trace_step("bench-start")
 		worker.benchmark(&pool, config.bench_count)
@@ -165,9 +171,29 @@ main :: proc() {
 		trace_step("loop-start")
 		fmt.printfln("frostrig running (algo: %s, threads: %v)",
 			config.algo_name, miner_cfg.thread_count)
+		fmt.printfln("pool URL: %s (stratum connect not implemented; running offline H/s loop)",
+			config.pool_url)
 	}
 
+	// Start the offline demo hashing loop so the user sees a live H/s figure
+	// even though the stratum layer is not yet wired to a real pool.
+	merr := worker.mine(&pool)
+	if merr != .None {
+		trace_step("mine-start-fail")
+		fmt.printfln("mine loop start failed: %v", merr)
+		worker.stop(&pool)
+		os.exit(1)
+	}
+	trace_step("mine-start-done")
+
+	// Periodically print H/s so the miner is visibly doing work.
+	REPORT_INTERVAL :: 5 * time.Second
+	last := time.now()
 	for {
 		time.sleep(1 * time.Second)
+		if time.since(last) >= REPORT_INTERVAL {
+			last = time.now()
+			worker.report(&pool, config.algo_name)
+		}
 	}
 }
