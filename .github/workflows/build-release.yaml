@@ -55,16 +55,16 @@ jobs:
         # windows i386 + amd64 jobs; the per-job arch label below records
         # which target each job actually compiles.
         include:
-          # ---- Linux (amd64 only, driven by the architecture input) ----
+          # ---- Linux (amd64 only; the i386 input is a no-op for Linux) ----
           - os: linux
             mode: release
-            arch: ${{ github.event.inputs.architecture || 'amd64' }}
+            arch: amd64
           - os: linux
             mode: debug
-            arch: ${{ github.event.inputs.architecture || 'amd64' }}
+            arch: amd64
           - os: linux
             mode: aggressive
-            arch: ${{ github.event.inputs.architecture || 'amd64' }}
+            arch: amd64
           # ---- Windows: always build both i386 and amd64 ----
           - os: windows
             mode: release
@@ -196,7 +196,7 @@ jobs:
            {
              echo "@echo off"
              echo "call \"${VCVARS_W}\" ${VCVARS_ARCH}"
-             echo "cmake -G \"Ninja\" -A ${CMAKE_ARCH} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_src -B randomx_src/build"
+              echo "cmake -G \"Ninja\" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_src -B randomx_src/build"
              echo "if errorlevel 1 ( echo CMake configure FAILED & exit /b 1 )"
              echo "cmake --build randomx_src/build --target randomx"
              echo "if errorlevel 1 ( echo CMake build FAILED & exit /b 1 )"
@@ -347,7 +347,7 @@ jobs:
             {
               echo "@echo off"
               echo "call \"${VCVARS_W}\" ${VCVARS_ARCH}"
-              echo "cmake -G \"Ninja\" -A ${CMAKE_ARCH} -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_keva_src -B randomx_keva_src/build"
+               echo "cmake -G \"Ninja\" -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -S randomx_keva_src -B randomx_keva_src/build"
               echo "if errorlevel 1 ( echo Keva CMake configure FAILED & exit /b 1 )"
               echo "cmake --build randomx_keva_src/build --target randomx"
               echo "if errorlevel 1 ( echo Keva CMake build FAILED & exit /b 1 )"
