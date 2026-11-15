@@ -3,7 +3,7 @@ package frostrig_ffi
 
 import c "core:c"
 
-foreign import librandomx "../third_party/randomx/lib/windows-x86_64/librandomx.lib"
+foreign import librandomx "../third_party/randomx/lib/windows/librandomx.lib"
 
 @(default_calling_convention = "c")
 foreign librandomx {

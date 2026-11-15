@@ -10,8 +10,8 @@ foreign import rxc64_mod "../algo/randomx/c64.obj"
 foreign import rxv_mod "../algo/randomx/v.obj"
 foreign import rxxeq_mod "../algo/randomx/xeq.obj"
 foreign import rxkeva_mod "../algo/keva/keva.obj"
-foreign import librandomx "../third_party/randomx/lib/windows-x86_64/librandomx.lib"
-foreign import librandomxkeva "../third_party/randomx-keva/lib/windows-x86_64/librandomx-keva.lib"
+foreign import librandomx "../third_party/randomx/lib/windows/librandomx.lib"
+foreign import librandomxkeva "../third_party/randomx-keva/lib/windows/librandomx-keva.lib"
 
 @(default_calling_convention = "c")
 foreign rx0_mod {
