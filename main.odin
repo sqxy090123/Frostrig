@@ -3,6 +3,7 @@ package main
 import core "./core"
 import algo "./algo"
 import worker "./worker"
+import net "./net"
 import os "core:os"
 import fmt "core:fmt"
 import time "core:time"
@@ -75,6 +76,7 @@ register_plugin_algos :: proc(paths: []string) -> core.Error {
 		fmt.printfln("      --cpu-affinity <mask>   CPU affinity mask")
 		fmt.printfln("      --cpu-priority <n>      CPU priority (nice value)")
 		fmt.printfln("      --no-huge-pages         disable huge page allocation")
+		fmt.printfln("      --stratum               connect to the pool over stratum+tcp (requires -o)")
 		fmt.printfln("      --no-gui                run without GUI")
 		fmt.printfln("      --list-algos            list registered algorithms and exit")
 		fmt.printfln("      --bench                 run benchmark and exit")
@@ -171,18 +173,58 @@ main :: proc() {
 		trace_step("loop-start")
 		fmt.printfln("frostrig running (algo: %s, threads: %v)",
 			config.algo_name, miner_cfg.thread_count)
-		fmt.printfln("pool URL: %s (stratum connect not implemented; running offline H/s loop)",
-			config.pool_url)
 	}
 
-	// Start the offline demo hashing loop so the user sees a live H/s figure
-	// even though the stratum layer is not yet wired to a real pool.
-	merr := worker.mine(&pool)
-	if merr != .None {
-		trace_step("mine-start-fail")
-		fmt.printfln("mine loop start failed: %v", merr)
-		worker.stop(&pool)
-		os.exit(1)
+	// Decide the mining seed.  When --stratum is set and a pool URL is
+	// present we dial the real stratum endpoint, log in, and seed the
+	// workers from the live job.  Otherwise we keep the offline demo loop so
+	// the binary (and CI) run without any network dependency.
+	use_stratum := config.stratum && config.pool_url != ""
+	stratum_session := net.Session{}
+	if use_stratum {
+		host, port, perr := net.parse_stratum_url(config.pool_url)
+		if perr != "" {
+			trace_step("stratum-parse-fail")
+			fmt.printfln("invalid pool URL: %v (falling back to offline demo)", perr)
+			use_stratum = false
+		} else {
+			stratum_session.user = config.username
+			stratum_session.pass = config.password
+			terr := net.connect(&stratum_session, net.Endpoint{host = host, port = port})
+			if terr != .None {
+				trace_step("stratum-connect-fail")
+				fmt.printfln("stratum connect failed: %v (falling back to offline demo)", terr)
+				use_stratum = false
+			} else {
+				trace_step("stratum-connected")
+				fmt.printfln("stratum connected to %v:%v, job id=%v",
+					host, port, stratum_session.job.job_id)
+			}
+		}
+	}
+
+	// Start the hashing loop.  With a live stratum session we seed it from
+	// the pool's current job blob; otherwise we run the synthetic demo loop.
+	if use_stratum {
+		serr2 := worker.mine_with_blob(&pool, stratum_session.job.blob)
+		if serr2 != .None {
+			trace_step("stratum-mine-start-fail")
+			fmt.printfln("stratum mine loop start failed: %v", serr2)
+			net.close(&stratum_session)
+			worker.stop(&pool)
+			os.exit(1)
+		}
+	} else {
+		if config.no_gui == false {
+			fmt.printfln("running offline H/s demo loop (no stratum pool)")
+		}
+		merr := worker.mine(&pool)
+		if merr != .None {
+			trace_step("mine-start-fail")
+			fmt.printfln("mine loop start failed: %v", merr)
+			worker.stop(&pool)
+			os.exit(1)
+		}
 	}
 	trace_step("mine-start-done")
 

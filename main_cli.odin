@@ -19,6 +19,7 @@ import fmt "core:fmt"
 		list_algos:   bool,
 		huge_pages:   bool,
 		plugin_paths: [dynamic]string,
+		stratum:      bool,
 	}
 
 	default_cli_config :: proc() -> Cli_Config {
@@ -150,6 +151,8 @@ parse_single_flag :: proc(
 		i^ += 1
 	} else if arg == "--no-huge-pages" {
 		config.huge_pages = false
+	} else if arg == "--stratum" {
+		config.stratum = true
 	} else {
 		if starts_with_dash(arg) {
 			return fmt.tprintf("unknown flag: %s", arg)

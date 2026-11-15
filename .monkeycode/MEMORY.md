@@ -131,7 +131,9 @@ Entries discovered by the Agent during task execution should follow this format:
   - rx/0 性能瓶颈是 Argon2 缓存初始化 + `randomx_get_flags()` 无 LARGE_PAGES（0x6a）。Argon2 init 强顺序依赖（每 block 依赖前一 block），无法跨 hash 重叠，因此 `calculate_hash_first/next/last` 双缓冲收益被吃掉，实测仅 +1.5~3.2%（1线程 37.7→38.9，4线程 74.7→75.8 H/s），远低于理论 20-40%。
   - 真正有效的提升方向只有宿主机 2GB 大页（`vm.nr_hugepages` + Large_Pages flag），属运维层面，超出代码层微观优化。
   - C 批量流水线契约：`frostrig_rx0_hash_pipeline(ctx,input,size,start_nonce,count,outputs)` 写 count-1 个 hash，末个 pending，需 `frostrig_rx0_hash_last` 排空；`Algo_Entry.pipeline` 为可选字段（nil 则回退逐 hash 循环），`mine_slice`/`bench_worker_data` 已接入 pipeline 分支。
-  - Odin FFI 注意：`c.uint64` 不存在，须用 `c.uint64_t`；FFI 包装函数放 `ffi/randomx_0.odin`（`rx0_hash_pipeline` 签名 `ctx,input,start_nonce:u64,count:u64,outputs:[]u8`）。
+   - Odin FFI 注意：`c.uint64` 不存在，须用 `c.uint64_t`；FFI 包装函数放 `ffi/randomx_0.odin`（`rx0_hash_pipeline` 签名 `ctx,input,start_nonce:u64,count:u64,outputs:[]u8`）。
+   - **mining 看似"卡住"实为 stratum 未实现**：`net/stratum.odin` 的 connect/login/submit/close 全是 `.Not_Implemented`，主路径从不调 net.connect；旧 `for{sleep(1)}` 是静默忙等，无任何 H/s 输出，用户体感"15s 后无响应"。解法（`worker.mine`/`mine_loop` + 主循环 5s 调 `worker.report`）：跨 worker 线程对合成 blob 跑 pipeline，原子计数，周期打印 `[H/s] <algo> threads=N  X H/s  (total Y)`。
+   - **Odin `atomic_add` 计数在慢算法下窗口过大=读不出**：rx/0 单 hash ~24ms，`WINDOW=1024` 时一次 `atomic_add` 间隔 ~25s，5s 的 H/s 报告永远读到 0。窗口需调小（`WINDOW=8`）让计数连续累计；原子计数/标志字段放 `[dynamic]u64`/`[dynamic]bool`（堆对齐、池内 rooting）比结构体普通字段更稳。
 
 [User Instruction Summary]
 - Date: 2026-11-14

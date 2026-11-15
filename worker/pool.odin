@@ -244,13 +244,54 @@ mine :: proc(pool: ^Pool) -> core.Error {
 	return .None
 }
 
+// mine_with_blob behaves like mine() but seeds the workers from a real pool
+// job blob instead of the synthetic constant.  Used by the --stratum path so
+// the miner hashes the live job while the reader thread keeps the pool's
+// job current for re-seeding.
+mine_with_blob :: proc(pool: ^Pool, blob: [dynamic]u8) -> core.Error {
+	if pool == nil {
+		return .Invalid_Argument
+	}
+	if pool.state != .Running {
+		return .Not_Initialized
+	}
+
+	if len(blob) == 0 {
+		// no job blob yet (e.g. login succeeded before the first
+		// mining.set_job): fall back to the synthetic demo blob
+		pool.blob_dyn = make([dynamic]u8, 8)
+		pool.blob_dyn[0] = 0xaa
+		pool.blob_dyn[1] = 0x5a
+	} else {
+		pool.blob_dyn = make([dynamic]u8, len(blob))
+		for i in 0 ..< len(blob) {
+			pool.blob_dyn[i] = blob[i]
+		}
+	}
+	pool.blob = pool.blob_dyn[:]
+
+	pool.running = make([dynamic]bool, 1)
+	pool.running[0] = true
+	pool.hash_count = make([dynamic]u64, 1)
+	pool.nonce_cursor = 0
+	pool.report_base = 0
+	pool.report_stamp = time.now()
+
+	pool.mine_ctxs = make([dynamic]mine_thread_ctx, pool.count)
+	for i in 0 ..< pool.count {
+		pool.mine_ctxs[i] = mine_thread_ctx{pool = pool, idx = u32(i)}
+	}
+
+	for i in 0 ..< pool.count {
+		pool.threads[i] = thread.create_and_start_with_data(rawptr(&pool.mine_ctxs[i]), mine_loop)
+	}
+	return .None
+}
+
 // report prints the H/s since the previous call and refreshes the baseline.
 // It is meant to be invoked from the main loop every N seconds so the user
 // sees live throughput without a pool.
 report :: proc(pool: ^Pool, algo_name: string) {
-	if pool == nil {
-		return
-	}
 	secs := time.duration_seconds(time.since(pool.report_stamp))
 	if secs <= 0 {
 		secs = 1
