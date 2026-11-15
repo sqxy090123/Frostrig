@@ -44,7 +44,15 @@ jobs:
         # linux amd64 x3 + windows {amd64,i386} x3.
         arch: [amd64]
         include:
+          # Expand Windows to a second i386 build for each mode.
           - os: windows
+            mode: release
+            arch: i386
+          - os: windows
+            mode: debug
+            arch: i386
+          - os: windows
+            mode: aggressive
             arch: i386
 
     steps:
@@ -605,16 +613,22 @@ jobs:
               # path has no spaces. Drop static libucrt.lib (DEFAULTLIB from
               # MSVC objs) to avoid calloc multiply-defined against the DLL
               # import in ucrt.lib.
-              UCRT_LIB=$(find "/c/Program Files (x86)/Windows Kits" -path "*/ucrt/${UCRT_SUBDIR}/ucrt.lib" 2>/dev/null | head -1)
-              if [ -n "$UCRT_LIB" ]; then
-                cp "$UCRT_LIB" "$PWD/ucrt.lib"
-                UCRT_LIB_W=$(cygpath -w "$PWD/ucrt.lib")
-                EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS ${UCRT_LIB_W} /NODEFAULTLIB:libucrt.lib /NODEFAULTLIB:libucrtd.lib"
-                echo "Added UCRT import lib ($UCRT_SUBDIR): $UCRT_LIB_W"
-              else
-                echo "WARNING: $UCRT_SUBDIR ucrt.lib not found"
-              fi
-           fi
+               UCRT_LIB=$(find "/c/Program Files (x86)/Windows Kits" -path "*/ucrt/${UCRT_SUBDIR}/ucrt.lib" 2>/dev/null | head -1)
+               if [ -n "$UCRT_LIB" ]; then
+                 cp "$UCRT_LIB" "$PWD/ucrt.lib"
+                 UCRT_LIB_W=$(cygpath -w "$PWD/ucrt.lib")
+                 EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS ${UCRT_LIB_W} /NODEFAULTLIB:libucrt.lib /NODEFAULTLIB:libucrtd.lib"
+                 echo "Added UCRT import lib ($UCRT_SUBDIR): $UCRT_LIB_W"
+               else
+                 echo "WARNING: $UCRT_SUBDIR ucrt.lib not found"
+               fi
+               # 32-bit x86 MSVC resolves SEH exception frames against MSVCRT.lib
+               # (__except_handler4_common); link it explicitly to avoid the
+               # LNK1120 unresolved-external that a forced UCRT import leaves.
+               if [[ "${{ matrix.arch }}" == "i386" ]]; then
+                 EXTRA_LINKER_FLAGS="$EXTRA_LINKER_FLAGS msvcrt.lib"
+               fi
+            fi
 
            echo "EXTRA_LINKER_FLAGS: $EXTRA_LINKER_FLAGS"
            echo "Lib files:"
