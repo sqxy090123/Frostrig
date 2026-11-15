@@ -31,6 +31,17 @@ Entries discovered by the Agent during task execution should follow this format:
 
 ## Entries
 
+[Project Knowledge Summary]
+- Date: 2026-11-14
+- Context: Discovered by Agent while fixing CryptoNight portable AES-128-ECB (software + AES-NI paths)
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - CryptoNight 软件 AES-128 曾产生错误密文，三处根因：(1) `xtime()` GF(2^8) 乘法公式错——旧式 `((x&0x80)?(x^0x1b):0)|((x&0x7f)<<1)` 在 0x80 分支保留了高位，正确为 `((x&0x7f)<<1)^((x&0x80)?0x1b:0)`，单此一条就破坏 MixColumns；(2) `cn_aes_encrypt_block` 的 AddRoundKey 索引在 state/round-key 字节序上转置了；(3) AES-NI 路径误用 `_mm_aesenc` 做密钥扩展（错误原语，它带 MixColumns）并双重应用了 rk[0]。
+  - AES-NI 正确做法：密钥扩展复用软件 `cn_aes_key_expand` 的字节结果，`_mm_loadu_si128` 装成 `__m128i` 轮密钥；加密序为 `d ^= rk[0]` → 9 次 `_mm_aesenc(d, rk[1..9])` → `_mm_aesenclast(d, rk[10])`。`_mm_xor_si128` 需 `<emmintrin.h>`（`<wmmintrin.h>` 已含）。
+  - AES-128-ECB 基准 oracle 用 openssl：`openssl enc -aes-128-ecb -K <hexkey> -nosalt` 输出含 PKCS7 padding（32 字节），前 16 字节=单块 ECB 密文。NIST SP800-38A（key `000102..0f`, pt `001122..ff` → `69c4e0d86a7b0430d8cdb78070b4c55a`）；FIPS-197（key `2b7e1516..4f3c`, pt `3243f6a8..0b32` → `f84c5d77a7cc60b220ccce00f88128a9`，注意网传 `3925841d...` 不是该 key/pt 的正向密文）。
+  - 可信任的 S-box 来源：tree 内 RandomX `third_party/randomx-keva/src/soft_aes.cpp` 的 sbox（与标准 256 表 0-diff）。`xxd` 不可用，用 `od -A n -t x1` 看十六进制。
+  - 验证 AES 路径无需整项目构建：把 `crypto_night.c` 的 AES 函数段抽出到 `/tmp/*.c`，stub 掉外部 `blake2b`（签名 `int blake2b(void*,size_t,const void*,size_t,const void*,size_t)`，带 `ARGON2_LOCAL`=hidden visibility），再与 openssl 值比对。
+
 [User Instruction Summary]
 - Date: 2026-11-08
 - Context: Odin 工程骨架初始化
@@ -144,4 +155,16 @@ Entries discovered by the Agent during task execution should follow this format:
   - C vtable struct layout: frostrig_algo_info (32 bytes) + 5x8-byte function pointers
   - Plugin ID 1000 (FROSTRIG_ALGO_PLUGIN_BASE) works correctly with linear scan plugin_forward
   - randomx_alloc_cache with 2GB dataset works in both main thread and worker threads
-  - demo plugin wraps rx/0 and achieves 44.2 H/s (1-thread) / 73.4 H/s (4-threads), matching built-in rx/0 performance
+   - demo plugin wraps rx/0 and achieves 44.2 H/s (1-thread) / 73.4 H/s (4-threads), matching built-in rx/0 performance
+
+[Project Knowledge Summary]
+- Date: 2026-11-15
+- Context: Discovered by Agent while adding Windows x86 (i386) build support to build-release.yaml
+- Category: Build Methods
+- Instructions:
+  - **Odin 架构 build tag 不自动匹配 target 架构**：`#+build windows`（仅 OS tag）会按 target OS 自动选中；但 `#+build windows, amd64` / `#+build windows, i386` 的架构 tag 在 `-target:windows_i386` 下不会被自动排除（两个架构 tag 文件会同时编译 → 符号重定义错误）。OS tag 自动匹配，架构 tag 不匹配。因此跨架构 FFI 不能用架构 build tag 拆分，应采用**架构中性**方案：FFI 引用固定目录（如 `third_party/randomx/lib/windows/librandomx.lib`），CI 每个 job 独立、把当前架构编译出的 `.lib` 拷入该固定目录。
+  - **Ninja 生成器不接受 `-A <platform>`**：CMake `cmake -G Ninja -A x64` 报 "Generator Ninja does not support platform specification"。arch 由激活的 vcvars 环境决定（`call vcvars64` = x64，`call vcvarsall x86` = Win32），Ninja 继承 PATH 上的 cl 架构。故 Ninja + MSVC 时去掉 `-A`。
+  - **i386 MSVC 需显式链接 `msvcrt.lib`**：32-bit MSVC 的 SEH 异常帧引用 `__except_handler4_common`（MSVCRT 符号）；强制 UCRT import（ucrt/x86/ucrt.lib + /NODEFAULTLIB）后该符号未解析，报 `LNK1120 unresolved external`。解法：i386 链接时追加 `msvcrt.lib`（amd64 走 UCRT，无需）。
+  - **i386 aggressive 构建**：32-bit 不支持 AVX2，C 侧 `/arch:AVX2` 去掉、退化为 `/O2`；Odin `-microarch:generic`（不能用 native，64-bit runner 会生成 x86-64 指令塞进 32-bit PE）。vcvars 用 `vcvarsall.bat x86`、`/MACHINE:X86`、ucrt `x86`。
+  - **matrix 多架构 include 陷阱**：base `matrix.os×mode`（6 组合）+ `include` 行若对同一 `(os,mode)` 组合写多个不同 `arch`，GitHub 合并时后写覆盖前写，i386 被丢弃。正确做法：把 `arch` 做成 base 轴（`arch: [amd64]`），再用**逐 mode 的 include 行**（每行带 os+mode+arch:i386）新增 i386 组合 → 共 9 job（linux amd64×3 + windows {amd64,i386}×3）。
+  - **运行时限制（非构建问题）**：i386 下 RandomX 2 GiB dataset（`RANDOMX_DATASET_BASE_SIZE`）超出 32-bit 4 GiB 用户地址空间，二进制可编译链接但 RandomX 大页运行时会失败；构建层面不受影响。
