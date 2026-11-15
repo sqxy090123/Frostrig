@@ -23,16 +23,6 @@ on:
       - 'rv[0-9]+.[0-9]+.[0-9]+'
       - 'rv[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
-    inputs:
-      architecture:
-        description: "CPU architecture to build for"
-        type: choice
-        required: true
-        default: amd64
-        options:
-          - amd64
-          - arm64
-          - i386
 
 permissions:
   contents: read
@@ -48,42 +38,14 @@ jobs:
       matrix:
         os: [linux, windows]
         mode: [release, debug, aggressive]
-        # Windows builds both 32-bit and 64-bit; Linux stays amd64.
-        # arch is the single architecture selected via workflow_dispatch
-        # input (or amd64 when triggered by a tag).  For Windows the
-        # architecture input is mapped to a matrix value that yields both
-        # windows i386 + amd64 jobs; the per-job arch label below records
-        # which target each job actually compiles.
+        # Base arch is amd64 (applies to both OSes).  The include row below
+        # adds a i386 build to every Windows combo, so Windows produces both
+        # i386 and amd64 jobs while Linux stays amd64-only.  Total 9 jobs:
+        # linux amd64 x3 + windows {amd64,i386} x3.
+        arch: [amd64]
         include:
-          # ---- Linux (amd64 only; the i386 input is a no-op for Linux) ----
-          - os: linux
-            mode: release
-            arch: amd64
-          - os: linux
-            mode: debug
-            arch: amd64
-          - os: linux
-            mode: aggressive
-            arch: amd64
-          # ---- Windows: always build both i386 and amd64 ----
           - os: windows
-            mode: release
             arch: i386
-          - os: windows
-            mode: release
-            arch: amd64
-          - os: windows
-            mode: debug
-            arch: i386
-          - os: windows
-            mode: debug
-            arch: amd64
-          - os: windows
-            mode: aggressive
-            arch: i386
-          - os: windows
-            mode: aggressive
-            arch: amd64
 
     steps:
       - name: Check out source
