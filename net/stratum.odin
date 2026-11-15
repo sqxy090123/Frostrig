@@ -6,6 +6,7 @@ import sync "core:sync"
 import json "core:encoding/json"
 import fmt "core:fmt"
 import thread "core:thread"
+import time "core:time"
 
 // ---------------------------------------------------------------------------
 // URL parsing
@@ -107,7 +108,8 @@ SUBMIT_ID :: 2
 
 // connect dials the pool over TCP and issues the JSON-RPC login.  It is the
 // entry point the CLI --stratum path uses; it blocks until login succeeds
-// (or the socket / protocol fails).
+// (or a socket / protocol step fails, in which case a distinct Stratum_*
+// error is returned so the caller can say *which* step broke).
 connect :: proc(session: ^Session, endpoint: Endpoint) -> core.Error {
 	if session == nil {
 		return .Invalid_Argument
@@ -120,10 +122,15 @@ connect :: proc(session: ^Session, endpoint: Endpoint) -> core.Error {
 	sock, derr := net.dial_tcp_from_hostname_and_port_string(target)
 	if net_error_failed(cast(net.Network_Error) derr) {
 		session.state = .Idle
-		return .Ffi_Call_Failed
+		return .Stratum_Dial_Failed
 	}
 	session.socket = u32(sock)
 	session.state = .Connected
+
+	// bound the socket so a dead / TLS-only pool fails fast instead of the
+	// reader goroutine blocking on recv forever.
+	_ = net.set_option(sock, .Receive_Timeout, 10 * time.Second)
+	_ = net.set_option(sock, .Send_Timeout, 10 * time.Second)
 
 	// send the login request, then wait for the pool's acknowledgement
 	err := send_line(session, build_login_request(session.user, session.pass))
@@ -131,7 +138,7 @@ connect :: proc(session: ^Session, endpoint: Endpoint) -> core.Error {
 		net.close(sock)
 		session.socket = 0
 		session.state = .Closed
-		return err
+		return .Stratum_Login_Failed
 	}
 
 	if e := expect_ack(session, LOGIN_ID); e != .None {
@@ -160,20 +167,28 @@ build_login_request :: proc(user: string, pass: string) -> string {
 // expect_ack reads lines from the pool until one carries LOGIN_ID in its
 // "id" field (the pool's login response).  Returns .None on success.
 expect_ack :: proc(session: ^Session, want_id: u64) -> core.Error {
+	ACK_TIMEOUT :: 30 * time.Second
+	start := time.now()
 	for {
 		line := read_line(session)
 		if len(line) == 0 {
-			// socket closed / read error
-			return .Ffi_Call_Failed
+			// socket closed / read error / timeout
+			return .Stratum_Ack_Timeout
 		}
 		v, perr := json.parse_string(dyn_bytes_to_string(line))
 		if perr != .None {
 			// not the JSON we expected yet (some pools send a raw line or a
 			// heartbeat first); keep reading.
+			if time.since(start) > ACK_TIMEOUT {
+				return .Stratum_Ack_Timeout
+			}
 			continue
 		}
 		if is_id_present(v, want_id) {
 			return .None
+		}
+		if time.since(start) > ACK_TIMEOUT {
+			return .Stratum_Ack_Timeout
 		}
 	}
 }

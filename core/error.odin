@@ -17,4 +17,10 @@ Error :: enum u32 {
 	Queue_Empty,
 	Not_Implemented,
 	Internal,
+
+	// stratum connection phases, so the CLI can report *which* step failed
+	// (dial vs. send-login vs. wait-for-ack) instead of one opaque error.
+	Stratum_Dial_Failed,
+	Stratum_Login_Failed,
+	Stratum_Ack_Timeout,
 }
