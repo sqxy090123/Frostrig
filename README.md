@@ -323,4 +323,20 @@ odin test .
 
 ## 许可证
 
-见 `.gitignore` 与 `third_party/` 中各库许可证（RandomX: MIT；Argon2: BSD-2-Clause；Keva: MIT）。
+本项目（frostrig 自研代码）以 **MIT** 许可证发布，见仓库根目录 `LICENSE`。
+
+第三方组件（随仓库 vendored，保留其原版权/许可证声明，均为宽松许可、无强 copyleft）：
+
+| 组件 | 位置 | 上游 | 许可证 |
+|------|------|------|--------|
+| VerusHash C++ 核心 | `algo/verushash/` | VerusCoin `src/crypto/verus_hash.cpp` | MIT |
+| Verus clhash (portable) | `algo/verushash/vh_clhash_portable.cpp` | VerusCoin `verus_clhash_portable.cpp`（源自 Lemire clhash） | Apache-2.0 |
+| Haraka | `algo/verushash/haraka_portable.c` | Haraka (kste, 2016) | MIT |
+| sse2neon | `algo/verushash/sse2neon.h` | SSE2NEON 项目 | MIT |
+| Argon2 / BLAKE2b 参考头 | `algo/{blake2b,cryptonight,ghostrider}/` | Argon2 reference | CC0 1.0 / Apache-2.0 |
+| RandomX | `third_party/randomx`、`third_party/randomx-keva` | RandomX 项目 | MIT |
+| Argon2 C 实现 | `third_party/argon2` | Argon2 reference | CC0 1.0 / Apache-2.0 |
+
+再分发时请保留上述组件随附的版权声明与许可证文本；Apache-2.0 组件需按其条款提供许可与变更说明。
+
+
