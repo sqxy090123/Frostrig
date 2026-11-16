@@ -227,7 +227,8 @@ main :: proc() {
 	// the pool's current job blob (or the synthetic seed when the first
 	// job is still pending); otherwise we run the synthetic demo loop.
 	if use_stratum {
-		serr2 := worker.mine_with_blob(&pool, stratum_session.job.blob)
+		job_blob := stratum_session.job.blob[:]
+		serr2 := worker.mine_with_blob(&pool, job_blob)
 		if serr2 != .None {
 			trace_step("stratum-mine-start-fail")
 			fmt.printfln("stratum mine loop start failed: %v", serr2)

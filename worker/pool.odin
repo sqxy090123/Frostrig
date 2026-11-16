@@ -26,10 +26,9 @@ Pool :: struct {
 	// slice stays valid for the pool's lifetime)
 	blob_dyn: [dynamic]u8,
 	// per-thread mining contexts (rooted here so mine_loop's data pointers
-	// stay valid for the thread lifetime)
+	// stay valid for the thread lifetime). Each worker owns a disjoint nonce
+	// segment: base = idx * STRIDE, so the shared cursor never races.
 	mine_ctxs: [dynamic]mine_thread_ctx,
-	// rolling nonce cursor for the no-pool demo mining loop
-	nonce_cursor: core.Nonce,
 	// cumulative hashes since start (atomic; read by the reporter).  Kept as a
 	// [dynamic]u64 so the counter lives in heap-aligned storage that the
 	// atomic intrinsics can reliably update from multiple threads.
@@ -161,13 +160,26 @@ stop :: proc(pool: ^Pool) -> core.Error {
 }
 
 // mine_loop is the per-thread worker for the no-pool demo loop. It hashes a
-// synthetic blob over a rolling nonce window so the user sees a real H/s
-// figure while no stratum pool is connected. Each completed slice bumps the
-// shared atomic hash_count.
+// blob over a rolling nonce window so the user sees a real H/s figure while
+// no stratum pool is connected.  Each worker owns a disjoint nonce segment
+// (base = idx * STRIDE), so no field is shared-and-written across threads;
+// only the atomic hash_count is shared.  Each completed slice bumps it.
 mine_thread_ctx :: struct {
-	pool: ^Pool,
-	idx:  u32,
+	pool:   ^Pool,
+	idx:    u32,
+	cursor: core.Nonce,
 }
+
+// WINDOW hashes per slice.  A mid-size window keeps the H/s readout smooth
+// for slow algorithms (RandomX: single hash is multi-ms, so a slice of 128
+// is ~3s at typical rates and still ticks within the 5s report interval)
+// while keeping the atomic hash_count update rate low enough that it is not
+// a bottleneck for fast algorithms.
+WINDOW :: 128
+
+// STRIDE separates the nonce segments of two adjacent workers so their rolling
+// windows can never collide for the first many slices.
+STRIDE :: 1 << 20
 
 mine_loop :: proc(data: rawptr) {
 	ctx := cast(^mine_thread_ctx) data
@@ -181,19 +193,15 @@ mine_loop :: proc(data: rawptr) {
 
 	blob := p.blob
 	out := core.Hash{}
-	// A small rolling window keeps the counter (and thus the H/s readout)
-	// updating frequently.  RandomX is slow per hash, so a big window would
-	// only tick once every many seconds; 8 hashes (~0.2s at typical rates)
-	// gives a smooth figure while staying well below the bench cost.
-	WINDOW :: 8
+	base := core.Nonce(idx) * core.Nonce(STRIDE)
 
 	for {
 		if sync.atomic_load(&p.running[0]) == false {
 			return
 		}
-		start := p.nonce_cursor
-		// advance the cursor so the next slice is disjoint
-		p.nonce_cursor = start + core.Nonce(WINDOW)
+		start := base + ctx.cursor
+		// advance this thread's local cursor so the next slice is disjoint
+		ctx.cursor = start + core.Nonce(WINDOW)
 
 		if p.entry.pipeline != nil {
 			_ = p.entry.pipeline(handle, blob, start, WINDOW)
@@ -207,48 +215,13 @@ mine_loop :: proc(data: rawptr) {
 	}
 }
 
-// mine spawns one worker thread per configured thread and starts the demo
-// hashing loop on a synthetic blob.  It is the no-pool stand-in for a real
-// stratum job feed: it makes the miner visibly busy and lets report()
-// produce a meaningful H/s.
-mine :: proc(pool: ^Pool) -> core.Error {
-	if pool == nil {
-		return .Invalid_Argument
-	}
-	if pool.state != .Running {
-		return .Not_Initialized
-	}
-
-	// synthetic 8-byte blob, same shape the pool would receive from a job
-	pool.blob_dyn = make([dynamic]u8, 8)
-	pool.blob_dyn[0] = 0xaa
-	pool.blob_dyn[1] = 0x5a
-	pool.blob = pool.blob_dyn[:]
-
-	pool.running = make([dynamic]bool, 1)
-	pool.running[0] = true
-	pool.hash_count = make([dynamic]u64, 1)
-	pool.nonce_cursor = 0
-	pool.report_base = 0
-	pool.report_stamp = time.now()
-
-	// per-thread context so each spawned thread knows its own index
-	pool.mine_ctxs = make([dynamic]mine_thread_ctx, pool.count)
-	for i in 0 ..< pool.count {
-		pool.mine_ctxs[i] = mine_thread_ctx{pool = pool, idx = u32(i)}
-	}
-
-	for i in 0 ..< pool.count {
-		pool.threads[i] = thread.create_and_start_with_data(rawptr(&pool.mine_ctxs[i]), mine_loop)
-	}
-	return .None
-}
-
-// mine_with_blob behaves like mine() but seeds the workers from a real pool
-// job blob instead of the synthetic constant.  Used by the --stratum path so
-// the miner hashes the live job while the reader thread keeps the pool's
-// job current for re-seeding.
-mine_with_blob :: proc(pool: ^Pool, blob: [dynamic]u8) -> core.Error {
+// mine_common spawns one worker thread per configured thread and starts the
+// hashing loop on the supplied blob slice (or a synthetic constant when blob
+// is empty).  It is the stand-in for a real stratum job feed: it keeps the
+// miner visibly busy and lets report() produce a meaningful H/s.  The blob
+// bytes are copied into the pool's owned [dynamic]u8 so the workers' slice
+// stays valid for the pool's lifetime.
+mine_common :: proc(pool: ^Pool, blob: []u8) -> core.Error {
 	if pool == nil {
 		return .Invalid_Argument
 	}
@@ -257,8 +230,7 @@ mine_with_blob :: proc(pool: ^Pool, blob: [dynamic]u8) -> core.Error {
 	}
 
 	if len(blob) == 0 {
-		// no job blob yet (e.g. login succeeded before the first
-		// mining.set_job): fall back to the synthetic demo blob
+		// synthetic 8-byte blob, same shape the pool would receive from a job
 		pool.blob_dyn = make([dynamic]u8, 8)
 		pool.blob_dyn[0] = 0xaa
 		pool.blob_dyn[1] = 0x5a
@@ -273,19 +245,34 @@ mine_with_blob :: proc(pool: ^Pool, blob: [dynamic]u8) -> core.Error {
 	pool.running = make([dynamic]bool, 1)
 	pool.running[0] = true
 	pool.hash_count = make([dynamic]u64, 1)
-	pool.nonce_cursor = 0
 	pool.report_base = 0
 	pool.report_stamp = time.now()
 
+	// per-thread context so each spawned thread knows its own index and
+	// nonce segment
 	pool.mine_ctxs = make([dynamic]mine_thread_ctx, pool.count)
 	for i in 0 ..< pool.count {
-		pool.mine_ctxs[i] = mine_thread_ctx{pool = pool, idx = u32(i)}
+		pool.mine_ctxs[i] = mine_thread_ctx{pool = pool, idx = u32(i), cursor = 0}
 	}
 
 	for i in 0 ..< pool.count {
 		pool.threads[i] = thread.create_and_start_with_data(rawptr(&pool.mine_ctxs[i]), mine_loop)
 	}
 	return .None
+}
+
+// mine starts the demo hashing loop on a synthetic blob (no pool connected).
+mine :: proc(pool: ^Pool) -> core.Error {
+	empty := make([]u8, 0)
+	return mine_common(pool, empty)
+}
+
+// mine_with_blob behaves like mine() but seeds the workers from a real pool
+// job blob instead of the synthetic constant.  Used by the --stratum path so
+// the miner hashes the live job while the reader thread keeps the pool's
+// job current for re-seeding.
+mine_with_blob :: proc(pool: ^Pool, blob: []u8) -> core.Error {
+	return mine_common(pool, blob)
 }
 
 // report prints the H/s since the previous call and refreshes the baseline.
@@ -300,8 +287,15 @@ report :: proc(pool: ^Pool, algo_name: string) {
 	hps := f64(cur - pool.report_base) / f64(secs)
 	pool.report_base = cur
 	pool.report_stamp = time.now()
-	fmt.printfln("[H/s] %-8s threads=%v  %.0f H/s  (total %v hashes)",
-		algo_name, pool.count, hps, cur)
+	// keep the total readable as it climbs (millions+); show it in M units
+	// once it passes a billion-th of a million
+	if cur >= 1000000 {
+		fmt.printfln("[H/s] %-8s threads=%v  %.0f H/s  (%.2fM total hashes)",
+			algo_name, pool.count, hps, f64(cur) / 1000000.0)
+	} else {
+		fmt.printfln("[H/s] %-8s threads=%v  %.0f H/s  (%v total hashes)",
+			algo_name, pool.count, hps, cur)
+	}
 }
 
 // stop_mining signals the demo mining loops to halt, joins the threads, and
