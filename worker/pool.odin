@@ -300,11 +300,15 @@ report :: proc(pool: ^Pool, algo_name: string) {
 
 // stop_mining signals the demo mining loops to halt, joins the threads, and
 // leaves the handles intact so the caller can still destroy them via stop().
+// It also frees the pool's owned dynamic buffers so a start/stop cycle does
+// not leak them.
 stop_mining :: proc(pool: ^Pool) {
 	if pool == nil {
 		return
 	}
-	pool.running[0] = false
+	if len(pool.running) > 0 {
+		pool.running[0] = false
+	}
 	for i in 0 ..< pool.count {
 		t := pool.threads[i]
 		if t != nil {
@@ -313,6 +317,21 @@ stop_mining :: proc(pool: ^Pool) {
 			pool.threads[i] = nil
 		}
 	}
+	// free the per-run dynamic buffers (blob owner, hash counter, run flag,
+	// thread contexts).  They are re-created by the next mine_common call.
+	if len(pool.blob_dyn) > 0 {
+		delete(pool.blob_dyn)
+	}
+	if len(pool.hash_count) > 0 {
+		delete(pool.hash_count)
+	}
+	if len(pool.running) > 0 {
+		delete(pool.running)
+	}
+	if len(pool.mine_ctxs) > 0 {
+		delete(pool.mine_ctxs)
+	}
+	pool.blob = nil
 }
 
 bench_args :: struct {

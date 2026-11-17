@@ -7,6 +7,7 @@ import json "core:encoding/json"
 import fmt "core:fmt"
 import thread "core:thread"
 import time "core:time"
+import strings "core:strings"
 
 // ---------------------------------------------------------------------------
 // URL parsing
@@ -294,7 +295,8 @@ classify_submit_result :: proc(v: json.Value) {
 // close
 // ---------------------------------------------------------------------------
 
-// close tears down the reader goroutine and the TCP socket.
+// close tears down the reader goroutine and the TCP socket, then frees the
+// session's owned buffers (recv_buf, recv_stop, job blob/seed).
 close :: proc(session: ^Session) -> core.Error {
 	if session == nil {
 		return .Invalid_Argument
@@ -308,6 +310,21 @@ close :: proc(session: ^Session) -> core.Error {
 		session.socket = 0
 	}
 	session.state = .Closed
+
+	// release the owned dynamic buffers now that the reader has been asked
+	// to stop (the socket is closed so no further read_line can grow them)
+	if len(session.recv_buf) > 0 {
+		delete(session.recv_buf)
+	}
+	if len(session.recv_stop) > 0 {
+		delete(session.recv_stop)
+	}
+	if len(session.job.blob) > 0 {
+		delete(session.job.blob)
+	}
+	if len(session.job.seed) > 0 {
+		delete(session.job.seed)
+	}
 	return .None
 }
 
@@ -376,11 +393,17 @@ apply_set_job :: proc(s: ^Session, obj: json.Object) {
 		}
 		if len(params) > 1 {
 			if h := json_string_at(params[1]); h != "" {
+				if len(s.job.blob) > 0 {
+					delete(s.job.blob)
+				}
 				s.job.blob = string_to_bytes(h)
 			}
 		}
 		if len(params) > 2 {
 			if st := json_string_at(params[2]); st != "" {
+				if len(s.job.seed) > 0 {
+					delete(s.job.seed)
+				}
 				s.job.seed = string_to_bytes(st)
 				s.job.seed_len = u32(len(s.job.seed))
 			}
@@ -435,6 +458,7 @@ send_line :: proc(s: ^Session, line: string) -> core.Error {
 	payload := make([]byte, len(line)+1)
 	copy(payload, line)
 	payload[len(line)] = byte('\n')
+	defer delete(payload)
 	sync.lock(&s.buf_lock)
 	defer sync.unlock(&s.buf_lock)
 	_, werr := net.send(cast(net.TCP_Socket) s.socket, payload)
@@ -469,12 +493,14 @@ read_line :: proc(s: ^Session) -> [dynamic]byte {
 		for i in 0 ..< rest_len {
 			kept[i] = s.recv_buf[nl+1+i]
 		}
+		delete(s.recv_buf)
 		s.recv_buf = kept
 		return line
 	}
 
 	// otherwise read more bytes off the socket
 	chunk := make([]byte, 4096)
+	defer delete(chunk)
 	n, rerr := net.recv(cast(net.TCP_Socket) s.socket, chunk)
 	if net_error_failed(cast(net.Network_Error) rerr) || n == 0 {
 		return make([dynamic]byte, 0)
@@ -488,6 +514,7 @@ read_line :: proc(s: ^Session) -> [dynamic]byte {
 	for i in 0 ..< n {
 		kept[old_len+i] = chunk[i]
 	}
+	delete(s.recv_buf)
 	s.recv_buf = kept
 
 	if nl := find_byte_in_slice(s.recv_buf, '\n'); nl >= 0 {
@@ -500,6 +527,7 @@ read_line :: proc(s: ^Session) -> [dynamic]byte {
 		for i in 0 ..< rest_len {
 			kept2[i] = s.recv_buf[nl+1+i]
 		}
+		delete(s.recv_buf)
 		s.recv_buf = kept2
 		return line
 	}
@@ -510,14 +538,13 @@ read_line :: proc(s: ^Session) -> [dynamic]byte {
 // helpers
 // ---------------------------------------------------------------------------
 
-// dyn_bytes_to_string converts a [dynamic]byte into a string by copying into
-// a fresh []byte (string coercion from a raw dynamic array is not allowed).
+// dyn_bytes_to_string converts a [dynamic]byte into a heap-owned string.
+// The dynamic array is consumed (freed) here so callers that pass a line from
+// read_line don't leak it.  string(b[:]) would be a zero-copy alias into the
+// dynamic array, so we clone to a fresh heap string before freeing it.
 dyn_bytes_to_string :: proc(b: [dynamic]byte) -> string {
-	tmp := make([]byte, len(b))
-	for i in 0 ..< len(b) {
-		tmp[i] = b[i]
-	}
-	return string(tmp)
+	defer delete(b)
+	return strings.clone(string(b[:]))
 }
 
 // net_error_failed reports whether a net sub-error union value is an error.
@@ -559,25 +586,11 @@ string_to_bytes :: proc(s: string) -> [dynamic]u8 {
 	return out
 }
 
-// u64_to_hex formats a u64 as lowercase hex.
+// u64_to_hex formats a u64 as lowercase hex with no leading zeros.
+// fmt.tprintf returns a heap string, so the result does not alias stack or
+// caller-owned memory.
 u64_to_hex :: proc(v: u64) -> string {
-	if v == 0 {
-		return "0"
-	}
-	digits := []byte{'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'}
-	buf := make([]byte, 16)
-	i := len(buf)
-	n := v
-	for n > 0 {
-		i -= 1
-		buf[i] = digits[int(n & 0xF)]
-		n >>= 4
-	}
-	// drop leading zeros that were not part of the value
-	for i > 0 && buf[i] == '0' {
-		i += 1
-	}
-	return string(buf[i:])
+	return fmt.tprintf("%x", v)
 }
 
 // string_to_u64 parses a hex string (the pool's job-id convention) to u64.
