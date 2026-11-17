@@ -250,11 +250,29 @@ main :: proc() {
 	}
 	trace_step("mine-start-done")
 
-	// Periodically print H/s so the miner is visibly doing work.
+	// Periodically print H/s so the miner is visibly doing work.  When a
+	// stratum session is live we also poll for new jobs (the reader thread
+	// applies mining.set_job) and publish them to the workers so they re-seed
+	// their header.
 	REPORT_INTERVAL :: 5 * time.Second
 	last := time.now()
+	last_job_id := core.Job_Id(0)
+	JOB_POLL_BUF :: 512
+	job_buf: [JOB_POLL_BUF]u8
 	for {
 		time.sleep(1 * time.Second)
+		if use_stratum {
+			job_id, job_blob := net.job_snapshot(&stratum_session, job_buf[:])
+			if job_id != last_job_id {
+				last_job_id = job_id
+				if len(job_blob) > 0 {
+					worker.set_job_blob(&pool, job_blob)
+					if config.no_gui == false {
+						fmt.printfln("new job %v, blob len=%v", job_id, len(job_blob))
+					}
+				}
+			}
+		}
 		if time.since(last) >= REPORT_INTERVAL {
 			last = time.now()
 			worker.report(&pool, config.algo_name)

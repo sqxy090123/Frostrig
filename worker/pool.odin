@@ -29,10 +29,6 @@ Pool :: struct {
 	// stay valid for the thread lifetime). Each worker owns a disjoint nonce
 	// segment: base = idx * STRIDE, so the shared cursor never races.
 	mine_ctxs: [dynamic]mine_thread_ctx,
-	// cumulative hashes since start (atomic; read by the reporter).  Kept as a
-	// [dynamic]u64 so the counter lives in heap-aligned storage that the
-	// atomic intrinsics can reliably update from multiple threads.
-	hash_count: [dynamic]u64,
 	// per-report baseline for computing H/s
 	report_base:  u64,
 	report_stamp: time.Time,
@@ -40,6 +36,12 @@ Pool :: struct {
 	running: [dynamic]bool,
 	// optional diagnostics (enabled by tests / main during bring-up)
 	debug: bool,
+	// live job feed: a stratum reader calls set_job_blob to publish a new
+	// header; workers detect the bump via the atomic job_seq and re-seed
+	// their stack-local blob copy.  blob_lock guards blob_dyn/blob so the
+	// reader swap is not torn against a worker's per-window snapshot.
+	job_seq:   [dynamic]u64,
+	blob_lock: sync.Mutex,
 }
 
 // mine_slice processes one nonce slice for a specific worker thread.
@@ -168,6 +170,10 @@ mine_thread_ctx :: struct {
 	pool:   ^Pool,
 	idx:    u32,
 	cursor: core.Nonce,
+	// per-thread hash count, private to this worker.  The reporter sums the
+	// contexts, so no global atomic counter is contended by N threads (which
+	// would bounce a cache line on every window).
+	hashes: u64,
 }
 
 // WINDOW hashes per slice.  A mid-size window keeps the H/s readout smooth
@@ -181,6 +187,11 @@ WINDOW :: 128
 // windows can never collide for the first many slices.
 STRIDE :: 1 << 20
 
+// MAX_BLOB bounds the stack-local per-worker blob snapshot.  RandomX input is
+// blob + 8-byte nonce and fits in 272 bytes; a 512-byte cap leaves room for
+// larger headers while keeping the per-window copy trivially cheap.
+MAX_BLOB :: 512
+
 mine_loop :: proc(data: rawptr) {
 	ctx := cast(^mine_thread_ctx) data
 	p := ctx.pool
@@ -191,7 +202,14 @@ mine_loop :: proc(data: rawptr) {
 			idx, sync.atomic_load(&p.running[0]), p.entry.pipeline != nil, handle.ctx != nil)
 	}
 
-	blob := p.blob
+	// Stack-local blob snapshot, refreshed only when the job_seq bumps.  This
+	// keeps a consistent header for the whole window (no torn reads) and never
+	// allocates on the hot path.
+	local_buf: [MAX_BLOB]u8
+	blob_len := 0
+	last_seq: u64 = max(u64)
+	blob := local_buf[:0]
+
 	out := core.Hash{}
 	base := core.Nonce(idx) * core.Nonce(STRIDE)
 
@@ -199,6 +217,22 @@ mine_loop :: proc(data: rawptr) {
 		if sync.atomic_load(&p.running[0]) == false {
 			return
 		}
+		// refresh the blob snapshot if the pool published a new job
+		seq := sync.atomic_load(&p.job_seq[0])
+		if seq != last_seq {
+			sync.lock(&p.blob_lock)
+			blob_len = len(p.blob)
+			if blob_len > MAX_BLOB {
+				blob_len = MAX_BLOB
+			}
+			for i in 0 ..< blob_len {
+				local_buf[i] = p.blob[i]
+			}
+			sync.unlock(&p.blob_lock)
+			blob = local_buf[:blob_len]
+			last_seq = seq
+		}
+
 		start := base + ctx.cursor
 		// advance this thread's local cursor so the next slice is disjoint
 		ctx.cursor = start + core.Nonce(WINDOW)
@@ -211,7 +245,8 @@ mine_loop :: proc(data: rawptr) {
 				_ = p.entry.hash(handle, blob, nonce, &out)
 			}
 		}
-		sync.atomic_add(&p.hash_count[0], u64(WINDOW))
+		// local counter: no shared atomic, no cache-line contention
+		ctx.hashes += u64(WINDOW)
 	}
 }
 
@@ -244,7 +279,8 @@ mine_common :: proc(pool: ^Pool, blob: []u8) -> core.Error {
 
 	pool.running = make([dynamic]bool, 1)
 	pool.running[0] = true
-	pool.hash_count = make([dynamic]u64, 1)
+	pool.job_seq = make([dynamic]u64, 1)
+	pool.job_seq[0] = 0
 	pool.report_base = 0
 	pool.report_stamp = time.now()
 
@@ -252,7 +288,7 @@ mine_common :: proc(pool: ^Pool, blob: []u8) -> core.Error {
 	// nonce segment
 	pool.mine_ctxs = make([dynamic]mine_thread_ctx, pool.count)
 	for i in 0 ..< pool.count {
-		pool.mine_ctxs[i] = mine_thread_ctx{pool = pool, idx = u32(i), cursor = 0}
+		pool.mine_ctxs[i] = mine_thread_ctx{pool = pool, idx = u32(i), cursor = 0, hashes = 0}
 	}
 
 	for i in 0 ..< pool.count {
@@ -275,26 +311,52 @@ mine_with_blob :: proc(pool: ^Pool, blob: []u8) -> core.Error {
 	return mine_common(pool, blob)
 }
 
+// set_job_blob publishes a new job header to the workers.  It swaps the pool's
+// owned blob buffer (freeing the old one) and bumps the atomic job_seq so the
+// mining loops re-seed their stack-local snapshot on their next window.  Called
+// by the stratum bridge (main) when the pool pushes a mining.set_job.
+set_job_blob :: proc(pool: ^Pool, blob: []u8) {
+	if pool == nil {
+		return
+	}
+	sync.lock(&pool.blob_lock)
+	old := pool.blob_dyn
+	pool.blob_dyn = make([dynamic]u8, len(blob))
+	for i in 0 ..< len(blob) {
+		pool.blob_dyn[i] = blob[i]
+	}
+	pool.blob = pool.blob_dyn[:]
+	sync.unlock(&pool.blob_lock)
+	if len(old) > 0 {
+		delete(old)
+	}
+	sync.atomic_add(&pool.job_seq[0], 1)
+}
+
 // report prints the H/s since the previous call and refreshes the baseline.
 // It is meant to be invoked from the main loop every N seconds so the user
-// sees live throughput without a pool.
+// sees live throughput without a pool.  The total is the sum of the per-thread
+// private counters (no shared atomic is updated on the hot path).
 report :: proc(pool: ^Pool, algo_name: string) {
 	secs := time.duration_seconds(time.since(pool.report_stamp))
 	if secs <= 0 {
 		secs = 1
 	}
-	cur := sync.atomic_load(&pool.hash_count[0])
-	hps := f64(cur - pool.report_base) / f64(secs)
-	pool.report_base = cur
+	total := u64(0)
+	for i in 0 ..< pool.count {
+		total += sync.atomic_load(&pool.mine_ctxs[i].hashes)
+	}
+	hps := f64(total - pool.report_base) / f64(secs)
+	pool.report_base = total
 	pool.report_stamp = time.now()
 	// keep the total readable as it climbs (millions+); show it in M units
-	// once it passes a billion-th of a million
-	if cur >= 1000000 {
+	// once it passes a million hashes
+	if total >= 1000000 {
 		fmt.printfln("[H/s] %-8s threads=%v  %.0f H/s  (%.2fM total hashes)",
-			algo_name, pool.count, hps, f64(cur) / 1000000.0)
+			algo_name, pool.count, hps, f64(total) / 1000000.0)
 	} else {
 		fmt.printfln("[H/s] %-8s threads=%v  %.0f H/s  (%v total hashes)",
-			algo_name, pool.count, hps, cur)
+			algo_name, pool.count, hps, total)
 	}
 }
 
@@ -317,16 +379,17 @@ stop_mining :: proc(pool: ^Pool) {
 			pool.threads[i] = nil
 		}
 	}
-	// free the per-run dynamic buffers (blob owner, hash counter, run flag,
-	// thread contexts).  They are re-created by the next mine_common call.
+	// free the per-run dynamic buffers (blob owner, run flag, thread
+	// contexts, job sequence).  They are re-created by the next mine_common
+	// call.
 	if len(pool.blob_dyn) > 0 {
 		delete(pool.blob_dyn)
 	}
-	if len(pool.hash_count) > 0 {
-		delete(pool.hash_count)
-	}
 	if len(pool.running) > 0 {
 		delete(pool.running)
+	}
+	if len(pool.job_seq) > 0 {
+		delete(pool.job_seq)
 	}
 	if len(pool.mine_ctxs) > 0 {
 		delete(pool.mine_ctxs)

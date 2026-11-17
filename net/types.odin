@@ -43,6 +43,9 @@ Session :: struct {
 
 	// current job pushed by the pool
 	job: Job_State,
+	// guards job so the reader thread's apply_set_job does not tear against
+	// the main thread's snapshot read (job_id / blob publish to the workers).
+	job_lock: sync.Mutex,
 
 	// read side: a reader goroutine appends newline-delimited JSON into
 	// recv_buf and hands complete lines to handle_message().  The mutex

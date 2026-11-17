@@ -11,9 +11,11 @@ algo_alias_randomx: string = "randomx"
 
 // RandomX_Context wraps the opaque C handle for the default RandomX variant.
 // All per-thread state (cache, dataset, VM, scratchpad) lives inside the C
-// context; the Odin side holds only this rawptr.
+// context; the Odin side holds only this rawptr.  pipe_out is the reusable
+// batch output buffer so rx_pipeline does not re-allocate every call.
 RandomX_Context :: struct {
-	ctx:  ffi.Rx0_Context,
+	ctx:      ffi.Rx0_Context,
+	pipe_out: [dynamic]u8,
 }
 
 rx_make_flags :: proc(config: core.Algo_Config) -> c.int {
@@ -73,6 +75,7 @@ rx_destroy :: proc(handle: Algo_Handle) {
 	}
 	c_ctx := cast(^RandomX_Context) handle.ctx
 	ffi.rx0_destroy(c_ctx.ctx)
+	delete(c_ctx.pipe_out)
 	free(c_ctx)
 }
 
@@ -177,8 +180,11 @@ rx_pipeline :: proc(
 		return core.Error.Invalid_Argument
 	}
 
-	// Allocate the output buffer once for the whole batch.
-	outs := make([dynamic]u8, count * 32)
+	// Reuse the per-context batch output buffer across calls: resize keeps the
+	// backing array once it is large enough, so steady-state mining performs
+	// zero allocations on this path.
+	resize(&c_ctx.pipe_out, int(count * 32))
+	outs := c_ctx.pipe_out[:]
 	// The C pipeline writes count-1 hashes and leaves the last pending; we
 	// drain it into outs[(count-1)*32 ..] via rx0_hash_last below.
 	err := ffi.rx0_hash_pipeline(c_ctx.ctx, input[:], u64(start_nonce), count, outs[:])
@@ -193,7 +199,6 @@ rx_pipeline :: proc(
 	}
 	// NOTE: the caller (worker) does not currently consume the per-hash outputs;
 	// the value of benchmarking the pipeline is that the C call itself is faster.
-	_ = outs
 	return .None
 }
 

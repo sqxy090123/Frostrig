@@ -319,13 +319,36 @@ close :: proc(session: ^Session) -> core.Error {
 	if len(session.recv_stop) > 0 {
 		delete(session.recv_stop)
 	}
+	sync.lock(&session.job_lock)
 	if len(session.job.blob) > 0 {
 		delete(session.job.blob)
 	}
 	if len(session.job.seed) > 0 {
 		delete(session.job.seed)
 	}
+	sync.unlock(&session.job_lock)
 	return .None
+}
+
+// job_snapshot returns a consistent view of the current job under the job
+// lock.  The blob is copied into a caller-provided buffer (cap_buf) so the
+// returned []u8 does not alias session-owned memory and stays valid after the
+// lock is released.  Returns the snapshot length and the job id.
+job_snapshot :: proc(s: ^Session, cap_buf: []u8) -> (id: core.Job_Id, blob: []u8) {
+	if s == nil {
+		return 0, nil
+	}
+	sync.lock(&s.job_lock)
+	defer sync.unlock(&s.job_lock)
+	id = s.job.job_id
+	n := len(s.job.blob)
+	if n > len(cap_buf) {
+		n = len(cap_buf)
+	}
+	for i in 0 ..< n {
+		cap_buf[i] = s.job.blob[i]
+	}
+	return id, cap_buf[:n]
 }
 
 // ---------------------------------------------------------------------------
@@ -380,8 +403,11 @@ handle_message :: proc(s: ^Session, raw: string) {
 
 // apply_set_job extracts the new job header + seed + target from a
 // mining.set_job and publishes it into s.job so the worker loop can re-seed.
-// The params array is [job_id, blob, seed, target].
+// The params array is [job_id, blob, seed, target].  The job lock keeps the
+// reader thread's update consistent against the main thread's snapshot read.
 apply_set_job :: proc(s: ^Session, obj: json.Object) {
+	sync.lock(&s.job_lock)
+	defer sync.unlock(&s.job_lock)
 	params_v := obj["params"]
 	switch pv in params_v {
 	case json.Array:
