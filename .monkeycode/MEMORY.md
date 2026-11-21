@@ -213,7 +213,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Category: Environment Configuration
 - Instructions:
   - **本 nightly（2026-11-16）Odin 陷阱清单（均实测报错/误判）**：
-    - `odin build .` 输出的二进制以**目录名**命名：在 `/workspace` 下构建得到 `./workspace`，不是 `./frostrig`（仓库里那个 `frostrig` 是旧产物，不带新 flag，直接跑会误判为"flag 未生效"）。`-out` 参数不存在。
+    - `odin build .` 不带 `-out` 时二进制以**目录名**命名：在 `/workspace` 下得到 `./workspace`。带 `-out:<name>` 可改名（如 `-out:frostrig` 产出 `./frostrig`，**`-out` 参数存在且有效**）；两个产物可能并存且版本不一致，跑错那个会误判为"flag 未生效"，务必认准刚构建出的文件。
     - `var x: T`（无初始化）是语法错误，用 `x: T`（colon 声明，零值）或 `x := T(0)`。
     - `string([]u8)` **别名**底层字节，不拷贝：`read_request` 里 `string(hdr[:])` 后 `delete(hdr)` 会让 method/path/header 值悬垂（use-after-free，表现为路由 404/垃圾值）。凡返回给调用方的 string 必须 `strings.clone` 或显式拷贝。
     - `strings.split(line, " ")` 返回的元素是**视图**（指进临时数组）：直接 `return fields[1]` 会把悬垂字符串交给调用方，表现为 path 变成单个垃圾字节（0x4C）导致路由 404。返回前必须重新编码，如 `return fmt.tprintf("%s", fields[1])`（tprintf 结果是新分配，安全）。
