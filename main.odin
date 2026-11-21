@@ -4,6 +4,8 @@ import core "./core"
 import algo "./algo"
 import worker "./worker"
 import net "./net"
+import api "./api"
+import cnet "core:net"
 import os "core:os"
 import fmt "core:fmt"
 import time "core:time"
@@ -27,6 +29,7 @@ trace_step :: proc(step: string) {
 register_algos :: proc() -> core.Error {
 	entries := []algo.Algo_Entry{
 		algo.randomx_entry,
+		algo.randomx_odin_entry,
 		algo.randomx_wow_entry,
 		algo.randomx_2_entry,
 		algo.randomx_c64_entry,
@@ -42,6 +45,7 @@ register_algos :: proc() -> core.Error {
 		algo.cn_pico_entry,
 		algo.cn_heavy_entry,
 		algo.ghostrider_entry,
+		algo.worm2_entry,
 	}
 	for e in entries {
 		err := algo.register(e)
@@ -80,6 +84,11 @@ register_plugin_algos :: proc(paths: []string) -> core.Error {
 		fmt.printfln("      --no-gui                run without GUI")
 		fmt.printfln("      --list-algos            list registered algorithms and exit")
 		fmt.printfln("      --bench                 run benchmark and exit")
+		fmt.printfln("      --gui                 open the worm/2 walk viewer (no pool URL) and keep serving")
+		fmt.printfln("      --gui-port <p>        viewer port (default: 18090)")
+		fmt.printfln("      --gui-stride <n>      walk steps between marked cells (default: %d)", algo.GUI_STRIDE)
+		fmt.printfln("      --gui-trail <n>       cells kept in the fading trail (1..%d)", algo.GUI_TRAIL_LEN)
+		fmt.printfln("      --test                run one benchmark hash, then serve the viewer forever")
 		fmt.printfln("      --plugin <path>         load an algorithm plugin (.so/.dll); may repeat")
 	}
 
@@ -137,6 +146,31 @@ main :: proc() {
 	}
 	trace_step("resolve-done")
 
+	// The 3D walk viewer needs Worm/2 (the only algorithm with a drawable
+	// matrix) and an offline run, so it is decided right here rather than
+	// letting the pool machinery start up for a run that will never dial out.
+	if config.gui && a_id == algo.Worm2_Id && config.pool_url == "" {
+		trace_step("gui-start")
+		if gerr := gui_worm2(config); gerr != .None {
+			trace_step("gui-fail")
+			fmt.printfln("gui viewer failed: %v", gerr)
+			os.exit(1)
+		}
+		return
+	}
+	if config.gui && (a_id != algo.Worm2_Id || config.pool_url != "") {
+		fmt.printfln("--gui only drives the worm/2 walk without a pool URL; continuing without it")
+	}
+
+	// --test is the "hash once, then hold the viewer open" mode.  It only has
+	// meaning on the worm/2 walk viewer, so reaching the miner path with it
+	// set means the flag would otherwise be silently dropped.  Fail loudly.
+	if config.test {
+		trace_step("test-without-gui")
+		fmt.printfln("--test requires --gui and the worm/2 walk without a pool URL")
+		os.exit(1)
+	}
+
 	miner_cfg := build_miner_config(config, a_id)
 	pool, pool_err := worker.create(miner_cfg)
 	if pool_err != .None {
@@ -167,6 +201,23 @@ main :: proc() {
 		worker.stop(&pool)
 		algo.unload_all_plugins()
 		return
+	}
+
+	// frostrig-api: startup login key + HTTP server on 0.0.0.0:18081.
+	// The login key is the credential /login accepts and is printed once so
+	// the operator can authenticate; only its SHA-256 digest is retained.
+	// A listen failure is non-fatal: mining continues without the API.
+	login_key := api.random_token()
+	fmt.printfln("[frostrig-api] login key: %s", login_key)
+	api_auth := new(api.Auth_State)
+	api.auth_init(api_auth, login_key)
+	api_control := new(api.Runtime_Control)
+	api.control_init(api_control, config.pool_url, config.username, config.password)
+	api_server := new(api.Api_Server)
+	api_server.auth = api_auth
+	api_server.control = api_control
+	if aerr := api.server_start(api_server, cnet.Address(cnet.IP4_Any), 18081); aerr != nil {
+		fmt.printfln("[frostrig-api] listen failed on 0.0.0.0:18081: %v (mining continues without API)", aerr)
 	}
 
 	if config.no_gui == false {
@@ -262,6 +313,31 @@ main :: proc() {
 	for {
 		time.sleep(1 * time.Second)
 		if use_stratum {
+			// Drain a pending frostrig-api pool/miner change and reconnect.
+			// Only the main goroutine touches the socket, so all reconnects are
+			// serialised here; the API thread only writes Runtime_Control.
+			nu, nm, np, reconnect := api.control_consume(api_control)
+			if reconnect {
+				net.close(&stratum_session)
+				stratum_session = net.Session{}
+				stratum_session.user = nm
+				stratum_session.pass = np
+				host2, port2, perr2 := net.parse_stratum_url(nu)
+				if perr2 != "" {
+					fmt.printfln("[frostrig-api] reconnect rejected: %v", perr2)
+				} else {
+					terr2 := net.connect(&stratum_session, net.Endpoint{host = host2, port = port2})
+					if terr2 != .None {
+						fmt.printfln("[frostrig-api] reconnect to %v:%v failed: %v", host2, port2, terr2)
+					} else {
+						last_job_id = 0
+						if len(stratum_session.job.blob) > 0 {
+							worker.set_job_blob(&pool, stratum_session.job.blob[:])
+						}
+						fmt.printfln("[frostrig-api] reconnected to %v:%v (user=%v)", host2, port2, nm)
+					}
+				}
+			}
 			job_id, job_blob := net.job_snapshot(&stratum_session, job_buf[:])
 			if job_id != last_job_id {
 				last_job_id = job_id

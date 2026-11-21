@@ -44,6 +44,18 @@ Pool :: struct {
 	blob_lock: sync.Mutex,
 }
 
+// gui_trace_attach links a Worm/2 walk trace to worker 0's algorithm handle so
+// the visualisation follows a single thread.  It reports false when the pool's
+// algorithm has nothing to draw.
+gui_trace_attach :: proc(pool: ^Pool, s: ^algo.Gui_State) -> bool {
+	if pool == nil || s == nil || pool.count == 0 {
+		return false
+	}
+	return algo.Attach_Worm2_Gui(pool.handles[0], s)
+}
+
+// gui_trace_detached leaves the handle untouched: the trace outlives a pool
+// stop because stop() only destroys the contexts it owns.
 // mine_slice processes one nonce slice for a specific worker thread.
 // It applies the developer fee, ticks the rest window, and calls the
 // algorithm hasher for each nonce in the user range.

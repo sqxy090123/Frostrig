@@ -311,14 +311,19 @@ close :: proc(session: ^Session) -> core.Error {
 	}
 	session.state = .Closed
 
-	// release the owned dynamic buffers now that the reader has been asked
-	// to stop (the socket is closed so no further read_line can grow them)
+	// release the owned read buffer now that the reader has been asked to stop
+	// (the socket is closed so no further read_line can grow it).  buf_lock is
+	// taken so a reader that is mid-read_line (holding the lock across recv) is
+	// guaranteed to have returned before recv_buf is freed; a live reconnect
+	// (frostrig-api pool change) otherwise races use-after-free.  recv_stop is
+	// left allocated (set true above) so the reader can observe it and exit
+	// without touching freed memory; the session zeroing on reconnect releases
+	// it.
+	sync.lock(&session.buf_lock)
 	if len(session.recv_buf) > 0 {
 		delete(session.recv_buf)
 	}
-	if len(session.recv_stop) > 0 {
-		delete(session.recv_stop)
-	}
+	sync.unlock(&session.buf_lock)
 	sync.lock(&session.job_lock)
 	if len(session.job.blob) > 0 {
 		delete(session.job.blob)

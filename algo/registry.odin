@@ -4,6 +4,11 @@ import core "../core"
 
 MAX_ALGOS :: 32
 
+// Worm2_Id is the registry id of the Worm/2 torus walk, exported so the
+// command line can tell the viewer-capable algorithm apart from the rest
+// without hardcoding a number.
+Worm2_Id: core.Algo_Id = algo_id_worm2
+
 @(private)
 entries: [MAX_ALGOS]Algo_Entry
 

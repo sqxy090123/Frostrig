@@ -56,17 +56,22 @@ rx_try_create :: proc(flags: c.int, key: []u8) -> (ctx: ffi.Rx0_Context, flags_u
 	return ctx, flags, .None
 }
 
-rx_create :: proc(config: core.Algo_Config) -> (Algo_Handle, core.Error) {
+rx_create_for :: proc(id: core.Algo_Id, config: core.Algo_Config) -> (Algo_Handle, core.Error) {
 	flags := rx_make_flags(config)
 	key := config_key(config)
 	ctx, flags_used, err := rx_try_create(flags, key[:])
+	delete(key)
 	if err != .None {
 		return {}, err
 	}
 	c_ctx := new(RandomX_Context)
 	c_ctx.ctx = ctx
 	_ = flags_used
-	return Algo_Handle{id = algo_id_randomx, ctx = rawptr(c_ctx)}, .None
+	return Algo_Handle{id = id, ctx = rawptr(c_ctx)}, .None
+}
+
+rx_create :: proc(config: core.Algo_Config) -> (Algo_Handle, core.Error) {
+	return rx_create_for(algo_id_randomx, config)
 }
 
 rx_destroy :: proc(handle: Algo_Handle) {

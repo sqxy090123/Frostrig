@@ -54,13 +54,14 @@ Entries discovered by the Agent during task execution should follow this format:
 
 [Project Knowledge Summary]
 - Date: 2026-11-08
-- Context: Discovered by Agent while running Odin toolchain setup
+- Context: Discovered by Agent while running Odin toolchain setup; updated 2026-11-17 with nightly 17937e9 syntax facts
 - Category: Environment Configuration
 - Instructions:
   - Odin 编译器：`/usr/local/bin/odin`（wrapper），真实二进制在 `/opt/odin/odin-linux-amd64-nightly+2026-11-03/odin`
   - 需要 `clang`（已通过 apt 安装）作为 LLVM 后端 linker
   - 库包检查命令：`odin check <dir> -no-entry-point`
   - 主包检查/构建：`odin check /workspace -no-entry-point`、`odin build /workspace -out:/tmp/opencode/frostrig`
+  - **nightly 17937e9（2026-11-16）语法事实**：无 `var` 关键字（`var x: T` 报错，用 `x := T(0)` 或 `x: T`）；无 receiver 方法语法（`(r: ^T) name :: proc(...)` 不支持，须普通 proc 首参传对象指针）；`@(init)` 须 `proc "contextless" ()`；`for x in a..<b` 循环变量作用域限于循环（结束值须在外部另存）；`+%`/`*%` 报 `Expected an operand`；`[^]u8 + int` 指针算术不支持（须 slice）；`_` 开头 odin 文件被拒；`odin run <file> -file` 单文件模式；switch 须穷举（缺 case 报 "Unhandled switch cases"）；`free()` 只收 `rawptr`，传 `make()` 得到的 `[]u8` 切片会报类型不匹配，需要零分配的 helper 应改为写入调用方提供的缓冲；`make()` 的堆切片转 `string(buf[:])` 后**禁止** `free(buf)`（该 nightly 下 free 需 rawptr），应让调用方持栈数组；字符串拼接 `a + b` 只接受常量，动态拼接用 `fmt.tprintf`（返回单个 string，无 error 通道）；返回栈数组的 `string(arr[:])` 会报 "It is unsafe to return ... refers to the stack memory"。
 
 [Project Knowledge Summary]
 - Date: 2026-11-08
@@ -170,3 +171,60 @@ Entries discovered by the Agent during task execution should follow this format:
   - **i386 aggressive 构建**：32-bit 不支持 AVX2，C 侧 `/arch:AVX2` 去掉、退化为 `/O2`；Odin `-microarch:generic`（不能用 native，64-bit runner 会生成 x86-64 指令塞进 32-bit PE）。vcvars 用 `vcvarsall.bat x86`、`/MACHINE:X86`、ucrt `x86`。
   - **matrix 多架构 include 陷阱**：base `matrix.os×mode`（6 组合）+ `include` 行若对同一 `(os,mode)` 组合写多个不同 `arch`，GitHub 合并时后写覆盖前写，i386 被丢弃。正确做法：把 `arch` 做成 base 轴（`arch: [amd64]`），再用**逐 mode 的 include 行**（每行带 os+mode+arch:i386）新增 i386 组合 → 共 9 job（linux amd64×3 + windows {amd64,i386}×3）。
   - **运行时限制（非构建问题）**：i386 下 RandomX 2 GiB dataset（`RANDOMX_DATASET_BASE_SIZE`）超出 32-bit 4 GiB 用户地址空间，二进制可编译链接但 RandomX 大页运行时会失败；构建层面不受影响。
+
+[Project Knowledge Summary]
+- Date: 2026-11-18
+- Context: Discovered by Agent while porting the RandomX interpreter VM to pure Odin (`/tmp/opencode/odinrx`)
+- Category: Testing Methods
+- Instructions:
+  - **纯 Odin RandomX interpreter 已过官方测试向量**：`key="test key 000"` / `input="This is a test"` → `639183aae1bf4c9a35884cb46b09cad9175f04efd7684e7262a0ac1c2f0b4e3f`（V1，等价 `RANDOMX_FLAG_FULL_MEM` interpreter 模式）。
+  - **两级验证法**（gold 参考 = 官方 `librandomx.a` + per-run 转储 harness `ref_vm_gold3.cpp`）：(1) 秒级测试用**确定性 dataset**（`dataset[i*8]=u64(i)*0x9E3779B97F4A7C15^0xD1B54A32D192ED03`，共 2181038016 字节），VM 与 gold 输出 `7791044d9e6a04c9ff731b5a337a46cb9485c9831c84c70bd1191468a22837e7` 一致；(2) 全量测试用真实 `init_cache` + 34,078,719 个 `init_dataset_item`，单线程约 34 分钟。
+  - **构建命令**：`cd /tmp/opencode/odinrx && odin build . -out:buildasm/t`（必须带 `-o:speed`/release，普通 `+`/`*` 才是 wrap 语义）；`./buildasm/t vm` 秒级、`./buildasm/t full` 约 34 分钟。
+  - **interpreter VM 移植的四个关键坑**：(1) scratchpad 必须 **16 字节对齐**（`mem.alloc(n, 16)`），`make([]u8,n)` 只有 8 字节对齐，写 `Vec` 时 LLVM 生成 `movaps` → SIGSEGV；(2) `mem.mx` 更新是 C++ **引用语义**（`auto& mp=mem.mx; mp^=...`），必须 `vm.mem.mx ~= ...`；(3) 最终 `blake2b` 输出长度是 **32**（RANDOMX_HASH_SIZE）不是 64；(4) C++ 的 `pc += 1` 在循环尾部（无条件），CBRANCH 用寄存器值当下一条指令地址，未写过寄存器时 target=-1 → pc 必须无条件递增否则越界。
+  - **Odin nightly 计时 API**：`os.get_time` 不存在；用 `start := time.now()` + `f64(time.duration_nanoseconds(time.since(start))) / 1e9`（`Time` 是 struct，不能直接相减；`time.Second` 是 `Duration` 与 `Time` 不可相除）。
+
+[Project Knowledge Summary]
+- Date: 2026-11-18
+- Context: Discovered by Agent while writing repo regression tests for the pure-Odin RandomX package (`tests/randomx_odin_test.odin`)
+- Category: Testing Methods
+- Instructions:
+  - **纯 Odin RandomX 包的回归测试已进 repo**：`tests/randomx_odin_test.odin`，跑法 `cd /workspace && odin test ./tests -define:ODIN_TEST_FANCY=false -target:linux_amd64`（当前 31 个测试全绿；`nonce` 相关 WARN 是既有已知噪声）。覆盖 Blake2b 标准向量（0/3/55/56/64/127/128/129/200/300 字节）+ AES `fillAes1Rx4`/`fillAes4Rx4`/`hashAes1Rx4`（参考值见 `/tmp/opencode/odinrx/ref_aes_gold.txt`）。
+  - **写测试向量前先与 Python `hashlib.blake2b` 对拍**，别凭记忆手抄：本轮曾把 256-bit 版 digest 当成 512-bit 版、以及 AES gold 手工拆行时少抄 2 个字符，两次都误判成"实现有 bug"。hex 参考串务必用程序从 gold 文件切分生成。
+  - **本 nightly 的 u64 位运算：`~` 既是二元 XOR 也是一元 NOT**（`a ~ b` = XOR，`~a` = NOT），**`^` 不是合法二元运算符**（`a ^ b` 直接 Syntax Error）。因此 `h[i] = h[i] ~ v[i] ~ v[i+8]` 是正确的 BLAKE2b 末轮，`~=` 是 XOR-assign。
+  - **`mem.alloc(size, align)` 在本版本只接受 size 整数**，返回 `(rawptr, bool)`，不能传类型；测试里改用**栈数组**（`buf: [3200]u8`）最省事且无泄漏 WARN。
+  - **本 nightly 缺少的 API**：`strings.unhex`、`mem.cmp`、`fmt.sprintf`（`fmt.printf` 返回 `int` 不是 `string`）。比对 hex 期望值时自己写逐字节解析 + 差异时 `fmt.printfln` 打印。
+  - **数组/结构体复合字面量**：全局作用域**不能**直接给数组变量赋字面量（`x: [T] = {...}` 报 "Expected a type, got '='"），要放进 proc 里用值数组 `[N]T` + 下标赋值；结构体字段与数组元素**都必须带尾随逗号**（含最后一个元素）。
+  - **`odin test` 只编译 `tests/`，不影响 `odin build .`**；改动仅测试文件时无需重跑 34 分钟的全量 RandomX 向量回归。
+
+[Project Knowledge Summary]
+- Date: 2026-11-18
+- Context: Discovered by Agent while making `tests/randomx_odin_entry_test.odin` match the official C library
+- Category: Troubleshooting & Debugging
+- Instructions:
+  - **写 C 侧 gold harness 拼 RandomX 输入时，nonce 必须存进 64 位变量**。`for i in 0..8: buf[len+i] = u8(nonce >> (i*8))` 中若 `nonce` 是 32 位 `unsigned`，`i>=4` 时移位量 ≥ 宽度属**未定义行为**，GCC `-O2` 会算出垃圾字节（实测 nonce=1 拼成 `01 00 00 00 01 00 00 00`）。这会让 nonce≥1 的 gold 值全错、端口看起来"只有第 1 个向量对"。nonce=0 恒为 0 所以永远不暴露 → 极易误判成实现 bug。`core.Nonce :: u64`，Odin 侧无此问题。
+  - **定位"端口 vs gold 不一致"的正确顺序**：(1) 先证明 gold 侧确定性（同一输入起**多个独立进程**各算一次，值必须相同；C 侧 `randomx_calculate_hash` 与调用次序无关）；(2) 再用 Python `hashlib.blake2b(d, digest_size=64)` 当第三方裁判验第一步的 `blake2b(input+nonce)`，即可立刻分清是端口错还是 harness 错；(3) 最后才逐字段比 program/寄存器。
+  - **逐字段对拍脚手架**：C 侧用 `InterpretedVmDefault` + `randomx_blake2b` 打印 TEMP/SCR/PROG(entrop y 前 128 字节)/REGA/REGE/REGF/REGR/mem.mx/mem.ma/datasetOffset；Odin 侧在包内加临时 `diag_run` proc（包外访问不到未 export 的 `run`/`blake2b`），从测试调起后 diff。`Program` 首字段就是 `entropy[16]`，`RegisterFile` 内存序 r,f,e,a（各 64 字节）。
+  - **本 nightly 无 `fmt.hex_str`**；打印字节序列只能循环 `fmt.printfln("%02x", b[i])`。`mem.free` 直接收 `rawptr`（`mem.alloc` 的返回值），不要 cast 成 `^anydata`/`voidptr`（两者都未声明）。
+   - **交叉构建 windows 目标需 Windows SDK**（`-windows-sdk-root:<path>`），本环境不具备；`-target:linux_amd64` 已通过即可验证平台中性改动可编译。
+
+[Project Knowledge Summary]
+- Date: 2026-11-19
+- Context: Discovered by Agent while building `api/` (HTTP/1.1 on core:net) and wiring it into main.odin
+- Category: Environment Configuration
+- Instructions:
+  - **本 nightly（2026-11-16）Odin 陷阱清单（均实测报错/误判）**：
+    - `odin build .` 输出的二进制以**目录名**命名：在 `/workspace` 下构建得到 `./workspace`，不是 `./frostrig`（仓库里那个 `frostrig` 是旧产物，不带新 flag，直接跑会误判为"flag 未生效"）。`-out` 参数不存在。
+    - `var x: T`（无初始化）是语法错误，用 `x: T`（colon 声明，零值）或 `x := T(0)`。
+    - `string([]u8)` **别名**底层字节，不拷贝：`read_request` 里 `string(hdr[:])` 后 `delete(hdr)` 会让 method/path/header 值悬垂（use-after-free，表现为路由 404/垃圾值）。凡返回给调用方的 string 必须 `strings.clone` 或显式拷贝。
+    - `strings.split(line, " ")` 返回的元素是**视图**（指进临时数组）：直接 `return fields[1]` 会把悬垂字符串交给调用方，表现为 path 变成单个垃圾字节（0x4C）导致路由 404。返回前必须重新编码，如 `return fmt.tprintf("%s", fields[1])`（tprintf 结果是新分配，安全）。
+    - `fmt.tprintf` 把 `{}` 当占位符：`fmt.tprintf(`{"ok":true,"token":"%s"}`, tok)` 输出 `%!(MISSING CLOSE BRACE)ok":true,...`。JSON 字面量拼接用 `strings.concatenate([]string{...})`，或把 `{"x":` 这类花括号片段用 `append(&parts, ...)` 单独追加、数字部分才走 tprintf。
+    - **运行时 `+` 字符串拼接禁止**：本 nightly 对任何 `str + var`（无论 backtick 还是双引号、常量还是变量）报 `Error: String concatenation is only allowed with constant strings`（实测：`a+b` 两个变量也报错）。字符串动态拼接一律用 `strings.concatenate([]string{...})`、`strings.builder` 或 `fmt.tprintf`。
+    - `sync.Mutex` 用自由函数 `sync.lock(&mu)`/`sync.unlock(&mu)`，`mu.lock()` 报 "no field 'lock'"。
+    - `append(&dyn, ..slice)`：slice 展开用 `..` **前缀**（Go 的 `...` 后缀报 `Expected ')', got '..'`）；单元素 `append(&dyn, v)`。
+    - map 删键是 `delete_key(&map, key)`，不是 `delete(map, key)`；`delete(m)` 只删整表。
+    - `strings.atoi` 不存在；`strconv.parse_int(s, base) -> (value: int, ok: bool)`（atoi 已弃用，`parse_int` 第 3 参是 `^int` 不是 bit_size）。
+    - `time.now() - Duration` 不支持，用 `time.time_add(t, -d)`。
+    - `core:net`：`net.send`/`net.recv`/`net.send_tcp` 都存在、都返回 `(n, err)` 二元组；string→[]byte 用 `transmute([]byte)str`（`[]u8(str)` 报错）；`net.Address :: union{IP4_Address, IP6_Address}`、`IP4_Any/IP4_Loopback/IP6_Loopback`；`IP6_Address :: distinct [8]u16be`，取字节须 `u16(x)>>8`，不能 `x[0]`。
+    - `thread.run_with_poly_data(data: $T, fn: proc(T))` 按**值**传参（`fn(server)` 收到 `^T` 值本身）；`thread.run(fn)` 无参。API 回调须 `proc(^Api_Server)` 而非 `proc()`。
+    - **HTTP/1.1 头部键一律小写存储**（parse 时 `to_lower`）；大小写无关查询用 `strings.equal_fold` 遍历（避免 `strings.to_lower` 每次分配泄漏）。
+    - Odin stdlib **无 HTTP server**；自建 HTTP/1.1 用 `core:net` 的 `listen_tcp`/`accept_tcp`（accept 返回对端 `Endpoint`）+ `thread.run_with_poly_data` 每连接一线程。

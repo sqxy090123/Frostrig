@@ -2,6 +2,7 @@ package main
 
 import core "./core"
 import algo "./algo"
+import gui "./gui"
 import fmt "core:fmt"
 
 	Cli_Config :: struct {
@@ -14,6 +15,11 @@ import fmt "core:fmt"
 		cpu_affinity: string,
 		cpu_priority: int,
 		no_gui:       bool,
+		gui:          bool,
+		gui_port:   u16,
+		gui_stride: u32,
+		gui_trail:  u32,
+		test:         bool,
 		bench:        bool,
 		bench_count:  u64,
 		list_algos:   bool,
@@ -27,6 +33,7 @@ import fmt "core:fmt"
 			threads      = 1,
 			cpu_priority = 0,
 			huge_pages   = true,
+			gui_port     = gui.GUI_PORT,
 			bench_count  = 2000,
 		}
 	}
@@ -124,6 +131,43 @@ parse_single_flag :: proc(
 		i^ += 1
 	} else if arg == "--no-gui" {
 		config.no_gui = true
+	} else if arg == "--gui" {
+		config.gui = true
+	} else if arg == "--gui-port" {
+		v, ok := next_value(argv, i^)
+		if ok == false {
+			return "missing value for --gui-port"
+		}
+		n, num_ok := parse_u32(v)
+		if num_ok == false || n > 65535 {
+			return fmt.tprintf("invalid gui port: %s", v)
+		}
+		config.gui_port = u16(n)
+		i^ += 1
+	} else if arg == "--gui-stride" {
+		v, ok := next_value(argv, i^)
+		if ok == false {
+			return "missing value for --gui-stride"
+		}
+		n, num_ok := parse_u32(v)
+		if num_ok == false || n == 0 {
+			return fmt.tprintf("invalid gui stride: %s", v)
+		}
+		config.gui_stride = n
+		i^ += 1
+	} else if arg == "--gui-trail" {
+		v, ok := next_value(argv, i^)
+		if ok == false {
+			return "missing value for --gui-trail"
+		}
+		n, num_ok := parse_u32(v)
+		if num_ok == false || n == 0 {
+			return fmt.tprintf("invalid gui trail: %s", v)
+		}
+		config.gui_trail = n
+		i^ += 1
+	} else if arg == "--test" {
+		config.test = true
 	} else if arg == "--bench" {
 		config.bench = true
 	} else if arg == "--bench-count" {
