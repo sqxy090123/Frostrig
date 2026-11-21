@@ -1,35 +1,34 @@
 # frostrig 未来规划
 
-> 基于当前工程状态（插件化 ABI 完成、12 算法注册、基准测试通过）制定的后续路线图。
+> 基于当前工程状态（插件化 ABI 完成、18 算法注册、Stratum 基础链路已实现、Worm/2 可视化 viewer、HTTP 控制 API）制定的后续路线图。
 > 优先级按 P0 → P2 排列；P0 为近期必须完成项，P2 为探索项。
 
 ## P0 — 近期必须完成
 
 ### 1. Stratum 协议实现（net 包）
 
-当前 `net/stratum.odin` 全部方法返回 `Not_Implemented`。需实现：
+**已完成**：`net/stratum.odin` 已实现 TCP 连接与登录（解析 `login` 响应）、`submit` 提交与结果分类、`close` 关闭、后台读线程（`start_reader` / `handle_message`）、`set.job` 与 `set.difficulty` 处理、`--url` 自动启用 stratum。
 
-- **TCP 连接与登录**：解析矿池返回的 `login` 响应，提取 session 与难度
-- **Job 分发**：收到 `mining.job` 通知 → 解析 blob / seed / target → 入队 `Job_Queue`
-- **Share 提交**：worker 发现合格 nonce → `submit(session, share)` → 解析 ack / stale
+**待补全**：
+
 - **重连与退避**：指数退避（初始 1s，上限 60s），保留最近 N 个 job
 - **心跳**：每 30s 发送 `keepalive`，3 次无响应断开
+- **错误分类**：连接失败原因细化（当前已有区分，需覆盖更多失败路径）
 
 依赖：`core:net`（TCP socket）+ `core:json`（Stratum 消息解析）。
 
-验收：`--url --user --pass` 参数可用，连接测试矿池（如 `stratum+tcp://` 本地 mock）能完成 login → job → submit 全链路。
+验收：`--url --user --pass` 参数可用，连接测试矿池（如 `stratum+tcp://` 本地 mock）能完成 login → job → submit 全链路；断线后可自动重连。
 
 ### 2. 算法实现补全
 
 | 算法 | 状态 | 需补全 |
 |------|------|--------|
-| `rx/wow` | 注册但 C 侧未实现 | 链接 librandomx-wow 或降级为 rx/0 + 不同 flag |
-| `rx/2` | 同上 | 链接 librandomx-v2 |
-| `rx/c64` | 同上 | 链接 C64 变体库 |
-| `vh/2.2` / `vh/3.1` | 注册但 C 侧未实现 | 实现 VerusHash C 库（纯 C，~500 行） |
+| `rx/odin` | 纯 Odin 重实现已完成 | 与 C 版性能对齐；补 SIMD 路径 |
+| `vh/2.2` / `vh/3.1` | 已实现（vendored C++） | 无 |
 | `argon2d/1000` / `16000` | 已实现 | 无 |
+| `worm/2` | 已实现 + GUI viewer | 可配置 torus 拓扑（`FROSTRIG_WORM2_ROWS` 等） |
 
-目标：所有 12 个内置算法在 `--list-algos` + `--bench` 下均可运行。
+目标：所有 18 个内置算法在 `--list-algos` + `--bench` 下均可运行。
 
 ### 3. 插件生命周期完善
 
@@ -71,9 +70,9 @@
 
 ### 8. 单元测试补全
 
-当前 `tests/` 覆盖 fee / nonce / registry / lifecycle / worker / net 骨架。需补全：
+当前 `tests/` 覆盖 fee / nonce / registry / lifecycle / worker / net / api / gui / worm2 / randomx_odin。需补全：
 
-- 算法 hash 正确性：对 rx/0 输入固定 blob + nonce，断言输出与 C 侧 `randomx_calculate_hash` 一致
+- 算法 hash 正确性：对 rx/0 输入固定 blob + nonce，断言输出与 C 侧 `randomx_calculate_hash` 一致（`rx/odin` 已有对照测试）
 - 插件加载失败路径：`--plugin /nonexistent.so` → 不崩溃，stderr 记录
 - 多线程竞争：4 worker 并发 enqueue / dequeue，断言无丢 job
 - 大页降级：`--no-huge-pages` 下 rx/0 仍可比对（用普通 4 KB 页）
@@ -100,11 +99,13 @@
 
 ### 11. GUI 层
 
-`--no-gui` 参数暗示未来有 GUI。探索方向：
+**已完成**：Worm/2 行走轨迹 viewer（`gui/`，`--gui`）——自包含 HTML 页面 + Canvas 2D 渲染，`/gui/trace` 轮询端点以每进程 token 门控；采样步长（`--gui-stride`）与轨迹长度（`--gui-trail`）可配置。
 
-- 原生：Odin 无成熟 GUI 库；可用 webview 嵌入（`--gui webview`）
-- 远程：Web 仪表盘（WebSocket + Chart.js），主进程 `--gui http` 暴露 8080 端口
+**待探索**：
+
+- 远程仪表盘：WebSocket + Chart.js 实时曲线，主进程暴露额外端口
 - 监控：实时 H/s、每线程温度、功耗估算、矿池连接状态
+- 原生：Odin 无成熟 GUI 库；可用 webview 嵌入（`--gui webview`）
 
 ### 12. 跨平台构建与发布
 
@@ -137,13 +138,13 @@
 1. **Stratum 矿池可用性**：当前无公开 Stratum 矿池可测试；需用本地 mock（`tests/net_test.odin` 已有骨架）
 2. **插件安全**：`dlopen` 加载第三方 `.so` 存在代码执行风险；需文档警告 + 可选签名验证（P2）
 3. **大页内存不可用**：部分云主机禁用 hugepages；降级路径已实现但性能损失 ~15%，需文档说明
-4. **Odin 编译器稳定性**：nightly 版本可能有 breaking change；CI 锁定 commit hash（`odin-linux-amd64-nightly+2026-11-03`）
+4. **Odin 编译器稳定性**：nightly 版本可能有 breaking change；CI 锁定版本（当前 `odin-linux-amd64-nightly+2026-11-16`）
 5. **Keva 变体许可证**：`third_party/randomx-keva` 需确认许可证与 MIT 兼容
 
 ## 贡献指南
 
 1. 分支命名：`YYMMDD-<type>-<short-desc>`（见 `submodule-commit-workflow.md`）
-2. 提交前运行 `odin check . -no-entry-point` + `odin test .`
+2. 提交前运行 `odin check . -no-entry-point` + `odin test tests/`
 3. 新增 C 依赖：vendored 到 `third_party/`，CI 中编译静态库
 4. 新增算法：`algo/<name>.odin` + `ffi/<name>_linux.odin` / `_windows.odin` + 注册到 `main.odin`
 5. 新增插件 ABI 字段：`algo/plugin.h` 向后兼容（追加字段，不改偏移）

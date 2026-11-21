@@ -1,14 +1,17 @@
 # frostrig
 
-frostrig 是用 [Odin](https://odin-lang.org) 实现的多算法 CPU 挖矿客户端。当前版本支持 **16 种内置算法**、多线程基准测试、插件化算法扩展，以及 1% 开发费 + 周期性"休息"的矿工体验机制。
+frostrig 是用 [Odin](https://odin-lang.org) 实现的多算法 CPU 挖矿客户端。当前版本支持 **18 种内置算法**、多线程基准测试、插件化算法扩展、Stratum 联网挖矿、HTTP 控制 API、以及 Worm/2 行走轨迹可视化 viewer。
 
 ## 特性
 
-- **多算法支持**：RandomX（默认 / WOW / V2 / C64 / V / XEQ / Keva）、Argon2id、Argon2d（16000 / 1000）、VerusHash 2.2 / 3.1、**BLAKE2b、CryptoNight PICO、CryptoNight Heavy/0（软件 AES-128 默认，AES-NI 可选）、GhostRider**
+- **多算法支持**：RandomX（默认 / WOW / V2 / C64 / V / XEQ / Keva / Odin 纯实现）、Argon2id、Argon2d（16000 / 1000）、VerusHash 2.2 / 3.1、**BLAKE2b、CryptoNight PICO、CryptoNight Heavy/0（软件 AES-128 默认，AES-NI 可选）、GhostRider**、**Worm/2（torus 行走轨迹）**
 - **多线程**：最高 256 worker，每 worker 独立算法句柄
 - **管道化哈希**：RandomX 系列采用 `first / next / last` 三段式流水线，Argon2 缓存初始化与 VM 执行重叠
 - **大页内存**：Linux `mmap(MAP_HUGETLB)` / Windows `VirtualAlloc(MEM_LARGE_PAGES)`，2 MiB 对齐
 - **插件化扩展**：`.so` / `.dll` 运行时加载，C 侧 vtable ABI，无需重编主程序
+- **Stratum 联网**：`net/` 已实现 TCP 连接 / 登录 / 提交 / 关闭 + 读线程，矿池 URL 自动启用 stratum
+- **HTTP 控制 API**：`api/` 提供 `/login`、`/config`、`/token/destroy` 端点（默认 `0.0.0.0:18081`，登录密钥启动时打印）
+- **Worm/2 可视化**：`gui/` 提供自包含 HTML 页面，轮询 `/gui/trace` 在 Canvas 上渲染 torus 行走轨迹，`/gui/trace` 以每进程 token 门控
 - **开发费与休息**：1% nonce 空间保留给开发者，每 64 个切片休眠 50 秒降低功耗
 - **跨平台**：Linux（主要目标）/ Windows MSVC（CI 验证）
 - **激进编译优化**：支持 `-O3 -march=native` 和 `-o:aggressive` 优化，性能提升最高 8.5%
@@ -21,6 +24,11 @@ frostrig/
 ├── algo/            算法注册表与分发层（frostrig_algo）
 │   ├── registry.odin 算法注册表
 │   ├── randomx.odin   RandomX 默认变体（rx/0）
+│   ├── randomx_odin/  RandomX 纯 Odin 重实现（rx/odin）
+│   │   ├── superscalar.odin / vm.odin / dataset.odin
+│   │   ├── argon2.odin / blake2b.odin / context.odin
+│   │   └── fpshim.c     C 侧性能 shim
+│   ├── randomx_odin_entry.odin rx/odin 入口
 │   ├── wow.odin       RandomX WOW 变体
 │   ├── rx2.odin       RandomX V2
 │   ├── c64.odin       RandomX C64
@@ -32,10 +40,11 @@ frostrig/
 │   ├── argon2d1000.odin  Argon2d (1000 迭代)
 │   ├── vh22.odin      VerusHash 2.2
 │   ├── vh31.odin      VerusHash 3.1
-│   ├── blake2b.odin   BLAKE2b (新增)
-│   ├── cn_pico.odin   CryptoNight PICO (新增)
-│   ├── cn_heavy.odin  CryptoNight Heavy/0 (新增, 软件 AES-128 默认)
-│   ├── ghostrider.odin GhostRider (新增)
+│   ├── blake2b.odin   BLAKE2b
+│   ├── cn_pico.odin   CryptoNight PICO
+│   ├── cn_heavy.odin  CryptoNight Heavy/0 (软件 AES-128 默认)
+│   ├── ghostrider.odin GhostRider
+│   ├── worm2.odin     Worm/2 torus 行走轨迹
 │   ├── plugin.h       插件 C ABI 头文件
 │   └── plugin.odin    插件加载器（dlopen / dlsym）
 ├── worker/          线程生命周期、任务队列、nonce 分配（frostrig_worker）
@@ -43,6 +52,16 @@ frostrig/
 │   ├── nonce.odin     nonce 范围切分
 │   ├── fee.odin       开发费 + 休息窗口
 │   └── queue.odin     任务队列
+├── net/             Stratum 协议（frostrig_net，已实现）
+│   ├── stratum.odin  TCP 连接 / 登录 / 提交 / 关闭 + 读线程
+│   └── types.odin    会话与端点类型
+├── api/             HTTP 控制 API（frostrig_api）
+│   ├── http.odin     监听 + 路由 + 连接处理
+│   ├── auth.odin     登录密钥（SHA-256 摘要）与认证
+│   └── control.odin  运行时控制（pool_url / miner_name / password）
+├── gui/             Worm/2 可视化 viewer（frostrig_gui）
+│   ├── server.odin   HTTP 服务 + /gui/trace 轮询端点（token 门控）
+│   └── page.odin    自包含 HTML 页面（Canvas 2D 渲染，无 CDN）
 ├── platform/        大页内存、CPU 亲和性、NUMA 查询（frostrig_platform）
 │   ├── memory_linux.odin / memory_windows.odin
 │   ├── affinity_linux.odin / affinity_windows.odin
@@ -50,7 +69,6 @@ frostrig/
 │   ├── dl.c + dl.h    C 侧 dlopen / dlsym / dlclose 包装
 │   └── dl_linux.odin / dl_windows.odin  Odin FFI 绑定
 ├── ffi/             RandomX / Argon2 / VerusHash C 库绑定（frostrig_ffi）
-├── net/             Stratum 协议骨架（frostrig_net，当前未实现）
 ├── plugins/         示例插件源码
 │   ├── blake2b_plugin.c      BLAKE2b 插件
 │   ├── cn_pico_plugin.c      CryptoNight PICO 插件
@@ -61,16 +79,19 @@ frostrig/
 │   ├── randomx/     librandomx（含 C 头文件 + 静态库）
 │   ├── randomx-keva/
 │   └── argon2/
-├── tests/           Odin 单元测试
-├── main.odin        程序入口 + 算法注册 + 插件加载
-└── main_cli.odin    CLI 参数解析
+├── tests/           Odin 单元测试（tests/ 目录，而非包根）
+├── main.odin        程序入口 + 算法注册 + GUI/api/stratum 编排
+├── main_cli.odin    CLI 参数解析
+├── main_gui.odin    GUI viewer 启动（Worm/2 采样配置）
+├── errhandler.odin  运行时日志/trace
+└── build-fix.sh     Linux 本地构建脚本（编译 C 模块 + 链接静态库）
 ```
 
 ## 构建
 
 ### 前置要求
 
-- Odin 编译器（`odin build` 自动查找；本项目验证版本为 nightly+2026-11-03）
+- Odin 编译器（`odin build` 自动查找；本项目验证版本为 nightly+2026-11-16）
 - C 编译器（`cc` / `clang`）用于编译 vendored 库与 C FFI 包装
 - Linux 上需要 `libstdc++`、`libpthread`、`libdl`、`libm`
 
@@ -87,17 +108,19 @@ frostrig/
 ### Linux 构建
 
 ```bash
-# 1. 编译 C FFI 包装（platform/dl.o 是 Odin foreign import 目标）
+# 一键构建（编译所有 C 模块 + 链接 vendored 静态库，产物为 ./frostrig）
+./build-fix.sh
+
+# 或手动分步：先编译 C FFI / 算法 C 模块，再编译 Odin 主程序
 cc -O2 -fPIC -c platform/dl.c -o platform/dl.o
 
-# 2. 编译主程序（链接 vendored 静态库）
-odin build . -target:linux_amd64 -microarch:generic -o:speed \
-  -out:.debug/frostrig \
+odin build . -target:linux_amd64 -o:speed \
+  -out:frostrig \
   -extra-linker-flags="-lstdc++ -lpthread -ldl -lm $(pwd)/third_party/randomx/lib/linux-x86_64/librandomx.a $(pwd)/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
 
-# 3. 激进优化版本（最高性能）
+# 激进优化版本（最高性能）
 odin build . -target:linux_amd64 -microarch:native -o:aggressive \
-  -out:.debug/frostrig_aggressive \
+  -out:frostrig_aggressive \
   -extra-linker-flags="-lstdc++ -lpthread -ldl -lm $(pwd)/third_party/randomx/lib/linux-x86_64/librandomx.a $(pwd)/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
 ```
 
@@ -134,13 +157,14 @@ cc -shared -fPIC -Ithird_party/argon2/include -Ithird_party/argon2/src -Ialgo/bl
 ### 列出算法
 
 ```bash
-.debug/frostrig --list-algos
+./frostrig --list-algos
 ```
 
-输出 **16 个内置算法**（可选加载插件）：
+输出 **18 个内置算法**（可选加载插件）：
 
 ```
 rx/0 (alias: randomx)        (memory: 2336 MB)
+rx/odin (alias: randomx-odin)  (memory: 2336 MB)
 rx/wow (alias: randomx-wow)  (memory: 2336 MB)
 rx/2   (alias: randomx-v2)   (memory: 2336 MB)
 rx/c64 (alias: randomx-c64)  (memory: 2336 MB)
@@ -152,27 +176,28 @@ argon2d/16000 (alias: argon2d16000) (memory: 18 MB)
 argon2d/1000  (alias: argon2d1000)  (memory: 2 MB)
 vh/2.2   (alias: verushash-v22) (memory: 0 MB)
 vh/3.1   (alias: verushash-v31) (memory: 0 MB)
-blake2b   (alias: blake2)    (memory: 0 MB)      # 新增
-cn-pico   (alias: cn_pico)    (memory: 0 MB)      # 新增
-cn-heavy/0 (alias: cn_heavy)  (memory: 4 MB)      # 新增
-ghostrider (alias: gr)       (memory: 1 MB)      # 新增
+blake2b   (alias: blake2)    (memory: 0 MB)
+cn-pico   (alias: cn_pico)    (memory: 0 MB)
+cn-heavy/0 (alias: cn_heavy)  (memory: 4 MB)
+ghostrider (alias: gr)       (memory: 1 MB)
+worm/2   (alias: worm2)      (memory: 2048 MB)
 ```
 
 ### 基准测试
 
 ```bash
 # 单线程基准测试
-.debug/frostrig -a blake2b -t 1 --bench --bench-count 2000 --no-gui
+./frostrig -a blake2b -t 1 --bench --bench-count 2000 --no-gui
 
 # 4 线程基准测试
-.debug/frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-gui
+./frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-gui
 
 # 激进优化版本性能对比
-.debug/frostrig -a blake2b --bench --bench-count 1000 --no-gui
-.debug/frostrig_aggressive -a blake2b --bench --bench-count 1000 --no-gui
+./frostrig -a blake2b --bench --bench-count 1000 --no-gui
+./frostrig_aggressive -a blake2b --bench --bench-count 1000 --no-gui
 
 # 关闭大页（用于对照）
-.debug/frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-huge-pages --no-gui
+./frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-huge-pages --no-gui
 ```
 
 **性能优化效果**：
@@ -184,10 +209,10 @@ ghostrider (alias: gr)       (memory: 1 MB)      # 新增
 
 ```bash
 # 加载 BLAKE2b 插件
-.debug/frostrig --list-algos --plugin plugins/blake2b_plugin.so
+./frostrig --list-algos --plugin plugins/blake2b_plugin.so
 
 # 使用插件进行基准测试
-.debug/frostrig -a blake2b -t 1 --bench --bench-count 500 --plugin plugins/blake2b_plugin.so --no-gui
+./frostrig -a blake2b -t 1 --bench --bench-count 500 --plugin plugins/blake2b_plugin.so --no-gui
 ```
 
 加载失败的插件被跳过（stderr 记录），不会导致主程序退出。
@@ -207,12 +232,55 @@ options:
       --cpu-affinity <mask>  CPU 亲和性掩码
       --cpu-priority <n>    CPU 优先级（nice 值）
       --no-huge-pages       禁用大页内存分配
+      --stratum             （legacy）矿池 URL 现在自动启用 stratum
       --no-gui              无 GUI 模式运行
       --list-algos          列出已注册算法并退出
       --bench               运行基准测试并退出
       --bench-count <n>     基准测试哈希次数（默认：2000）
+      --gui                 打开 Worm/2 行走 viewer（无矿池 URL）并持续服务
+      --gui-port <p>        viewer 端口（默认：18090）
+      --gui-stride <n>      行走标记步长（默认：4096）
+      --gui-trail <n>       淡出轨迹保留的格子数（1..11）
+      --test                先跑一次基准哈希，然后永久服务 viewer
       --plugin <path>       加载算法插件（.so/.dll），可重复
 ```
+
+### Worm/2 可视化 viewer
+
+```bash
+# 启动 Worm/2 torus 行走 viewer（无矿池 URL，持续服务）
+./frostrig --algo worm/2 --gui
+
+# 自定义采样步长与轨迹长度，然后打开浏览器访问 http://<host>:18090/
+./frostrig --algo worm/2 --gui --gui-stride 1024 --gui-trail 5
+
+# 先跑一次基准哈希，再保持 viewer 打开（--test 要求 --gui 且无矿池 URL）
+./frostrig --algo worm/2 --test --gui
+```
+
+- 页面是自包含 HTML（无 CDN），轮询 `/gui/trace` 在 Canvas 2D 上渲染 torus 行走轨迹
+- `/gui/trace` 以**每进程 token 门控**：token 在启动时生成并嵌入页面，页面经 `X-Trace-Token` 头回显；缺失或错误 token 返回 403
+- `--gui` 仅驱动 Worm/2 行走且需无矿池 URL；配其它算法或带矿池 URL 时给出提示并继续
+
+### HTTP 控制 API
+
+```bash
+# 启动矿工（会打印 login key）
+./frostrig -a rx/0 -t 1 --url stratum+tcp://pool.example.com:3333 -u wallet -p x
+
+# 另开终端：用 login key 获取 token，再调用控制端点
+curl -X POST http://127.0.0.1:18081/login -H 'Content-Type: application/json' \
+  -d '{"key":"<login-key>"}'
+curl -X POST http://127.0.0.1:18081/config -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <token>" -d '{"pool_url":"...","miner_name":"...","password":"..."}'
+curl -X POST http://127.0.0.1:18081/token/destroy -H "Authorization: Bearer <token>"
+```
+
+- 默认监听 `0.0.0.0:18081`；启动时打印一次性 login key（只保留其 SHA-256 摘要）
+- `/login` 交换 login key 换取访问 token；`/config` 更新运行时矿池配置；`/token/destroy` 吊销并轮换 token（新 token 打印到 stdout）
+- token 可从 `Authorization: Bearer <token>`、`X-Auth-Token: <token>` 或 `?token=<token>` 查询参数提供（按此顺序）
+- **loopback 豁免**：来自本机且未携带代理头的请求免 token（便于本地运维）；经代理转发的请求仍须带 token
+- 监听失败非致命：矿工照常运行，仅无 API
 
 ## 插件 ABI
 
@@ -235,7 +303,7 @@ const frostrig_algo_vtable *frostrig_algo_register(void);
 
 约定：
 
-- 插件 `id` 从 `FROSTRIG_ALGO_PLUGIN_BASE`（= 1000）起取，避免与内置算法（0–15）冲突
+- 插件 `id` 从 `FROSTRIG_ALGO_PLUGIN_BASE`（= 1000）起取，避免与内置算法（0–18）冲突
 - 插件自包含：链接自己的 librandomx / argon2 等依赖
 - `create` 在主线程或 worker 线程调用均可（RandomX 2 GB 数据集在 worker 线程验证通过）
 - 卸载顺序：先 destroy 所有 per-thread handle，再 `dlclose`（`unload_all_plugins` 保证）
@@ -253,7 +321,7 @@ const frostrig_algo_vtable *frostrig_algo_register(void);
 严格单向依赖：
 
 ```
-main → net / worker / algo → core / ffi / platform
+main → net / worker / algo / api / gui → core / ffi / platform
 ```
 
 - `core:sys` 仅允许出现在 `platform/` 后缀文件（`memory_linux.odin`、`numa_linux.odin`、`affinity_linux.odin`）
@@ -263,14 +331,14 @@ main → net / worker / algo → core / ffi / platform
 ## 测试
 
 ```bash
-# Odin 单元测试
-odin test .
+# Odin 单元测试（tests/ 目录）
+odin test tests/
 
 # 基准测试
-.debug/frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-gui
+./frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-gui
 ```
 
-测试覆盖：fee 计算、nonce 切分、注册表、网络骨架、生命周期、worker 线程。
+测试覆盖：fee 计算、nonce 切分、注册表、Stratum 网络、生命周期、worker 线程、RandomX 纯 Odin 实现、Worm/2 行走、GUI viewer（页面/token 门控/采样配置）、API 端点。
 
 ## 性能参考
 
@@ -312,12 +380,24 @@ odin test .
 - **特点**: 1 MiB BLAKE2b密钥流缓冲区，2-8轮变色龙链
 - **性能**: 739K H/s (激进优化后性能下降，需要进一步优化)
 
+### RX/ODIN (rx/odin)
+- **类型**: RandomX 纯 Odin 重实现
+- **内存使用**: 2336 MB
+- **特点**: 完整移植 argon2d / blake2b / superscalar VM / 2 GiB 数据集，`algo/randomx_odin/` 无 C 库依赖，仅一个 `fpshim.c` 提供 SIMD shim
+- **状态**: 与 C 版 librandomx 结果对齐，可作交叉校验与去 C 依赖的备选路径
+
+### WORM/2 (worm/2)
+- **类型**: torus 行走轨迹算法（非挖矿哈希）
+- **内存使用**: 2048 MB
+- **特点**: 在 torus 矩阵上行走，`gui/` 提供 Canvas viewer 实时可视化；`--gui-stride` 控制标记步长（默认 4096），`--gui-trail` 控制淡出轨迹格数（1..11，默认 11）
+- **说明**: 配合 `--gui` 使用（需无矿池 URL）；`--test` 先跑一次基准哈希再长期服务 viewer
+
 ## 当前限制
 
-- `net/` Stratum 协议未实现（骨架阶段，所有方法返回 `Not_Implemented`）
 - 插件仅验证 Linux `.so`；Windows `.dll` 路径已 stub 但未 CI 验证
 - 开发费与休息窗口为占位实现；未来应支持可配置费率与调度
 - `--coin` 参数仅信息性，未接入币种数据库
+- HTTP 控制 API 与 GUI viewer 默认绑定 `0.0.0.0`（api 为 18081、viewer 为 18090）；暴露到公网前应在防火墙/反代层收敛监听地址
 - 生产环境应启用 `LARGE_PAGES`（需宿主机 2 GB hugepages 配置）
 - GhostRider 算法在激进优化下性能下降，需要单独优化策略
 

@@ -84,6 +84,7 @@ register_plugin_algos :: proc(paths: []string) -> core.Error {
 		fmt.printfln("      --no-gui                run without GUI")
 		fmt.printfln("      --list-algos            list registered algorithms and exit")
 		fmt.printfln("      --bench                 run benchmark and exit")
+		fmt.printfln("      --bench-count <n>     benchmark hashes to run (default: 2000)")
 		fmt.printfln("      --gui                 open the worm/2 walk viewer (no pool URL) and keep serving")
 		fmt.printfln("      --gui-port <p>        viewer port (default: 18090)")
 		fmt.printfln("      --gui-stride <n>      walk steps between marked cells (default: %d)", algo.GUI_STRIDE)
