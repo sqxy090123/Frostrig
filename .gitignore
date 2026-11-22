@@ -14,6 +14,16 @@ third_party/argon2/*.obj
 
 # Runtime log produced by errhandler.odin (always compiled in)
 errhandler.log
+frostrig_trace.log
+
+# CI build logs and local build transcripts
+build_*.log
+frostrig_full.bundle
+commit_summary.md
+
+# Local scratch (patches applied via script, argon2 AES-SSSE3 scratch object)
+patches/
+algo/argon2/stbs3fKp
 
 # CI helper scripts superseded by committed errhandler.odin
 .github/scripts/

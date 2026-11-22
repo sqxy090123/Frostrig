@@ -26,7 +26,9 @@
 | `rx/odin` | 纯 Odin 重实现已完成 | 与 C 版性能对齐；补 SIMD 路径 |
 | `vh/2.2` / `vh/3.1` | 已实现（vendored C++） | 无 |
 | `argon2d/1000` / `16000` | 已实现 | 无 |
+| `rx/16` / `stratum/` | 已实现（2026-11-22） | 无 |
 | `worm/2` | 已实现 + GUI viewer | 可配置 torus 拓扑（`FROSTRIG_WORM2_ROWS` 等） |
+| `blake2b` / `cn-pico` / `cn-heavy/0` / `ghostrider` | 已实现（2026-11-21/22） | 无 |
 
 目标：所有 18 个内置算法在 `--list-algos` + `--bench` 下均可运行。
 
@@ -138,7 +140,7 @@
 1. **Stratum 矿池可用性**：当前无公开 Stratum 矿池可测试；需用本地 mock（`tests/net_test.odin` 已有骨架）
 2. **插件安全**：`dlopen` 加载第三方 `.so` 存在代码执行风险；需文档警告 + 可选签名验证（P2）
 3. **大页内存不可用**：部分云主机禁用 hugepages；降级路径已实现但性能损失 ~15%，需文档说明
-4. **Odin 编译器稳定性**：nightly 版本可能有 breaking change；CI 锁定版本（当前 `odin-linux-amd64-nightly+2026-11-16`）
+4. **Odin 编译器稳定性**：nightly 版本可能有 breaking change；CI 锁定版本（当前 `odin-linux-amd64-nightly+2026-11a`）
 5. **Keva 变体许可证**：`third_party/randomx-keva` 需确认许可证与 MIT 兼容
 
 ## 贡献指南

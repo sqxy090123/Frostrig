@@ -73,7 +73,7 @@ EXTRA_LINKER_FLAGS="-lstdc++ -lpthread -ldl -lm \
   ${PWD}/third_party/randomx/lib/linux-x86_64/librandomx.a \
   ${PWD}/third_party/randomx-keva/lib/linux-x86_64/librandomx-keva.a"
 
-odin build . -target:linux_amd64 -o:speed \
+odin build . -target:linux_amd64 -microarch:generic -o:speed \
   -extra-linker-flags:"$EXTRA_LINKER_FLAGS" \
   -out:frostrig
 

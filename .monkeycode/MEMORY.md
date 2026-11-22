@@ -54,7 +54,7 @@ Entries discovered by the Agent during task execution should follow this format:
 
 [Project Knowledge Summary]
 - Date: 2026-11-08
-- Context: Discovered by Agent while running Odin toolchain setup; updated 2026-11-17 with nightly 17937e9 syntax facts
+- Context: Discovered by Agent while running Odin toolchain setup; updated 2026-11-22 with nightly 9a69916 confirmation
 - Category: Environment Configuration
 - Instructions:
   - Odin 编译器：`/usr/local/bin/odin`（wrapper），真实二进制在 `/opt/odin/odin-linux-amd64-nightly+2026-11a/odin`（commit `9a69916`，release `dev-2026-11a`）；上一版本 `/opt/odin/odin-linux-amd64-nightly+2026-11-16/odin`（commit `17937e9`，`dev-2026-11`）保留可回滚
@@ -63,6 +63,10 @@ Entries discovered by the Agent during task execution should follow this format:
   - 库包检查命令：`odin check <dir> -no-entry-point`
   - 主包检查/构建：`odin check /workspace -no-entry-point`、`odin build /workspace -out:/tmp/opencode/frostrig`
   - **nightly 17937e9（2026-11-16）语法事实**：无 `var` 关键字（`var x: T` 报错，用 `x := T(0)` 或 `x: T`）；无 receiver 方法语法（`(r: ^T) name :: proc(...)` 不支持，须普通 proc 首参传对象指针）；`@(init)` 须 `proc "contextless" ()`；`for x in a..<b` 循环变量作用域限于循环（结束值须在外部另存）；`+%`/`*%` 报 `Expected an operand`；`[^]u8 + int` 指针算术不支持（须 slice）；`_` 开头 odin 文件被拒；`odin run <file> -file` 单文件模式；switch 须穷举（缺 case 报 "Unhandled switch cases"）；`free()` 只收 `rawptr`，传 `make()` 得到的 `[]u8` 切片会报类型不匹配，需要零分配的 helper 应改为写入调用方提供的缓冲；`make()` 的堆切片转 `string(buf[:])` 后**禁止** `free(buf)`（该 nightly 下 free 需 rawptr），应让调用方持栈数组；字符串拼接 `a + b` 只接受常量，动态拼接用 `fmt.tprintf`（返回单个 string，无 error 通道）；返回栈数组的 `string(arr[:])` 会报 "It is unsafe to return ... refers to the stack memory"。
+  - **nightly 9a69916（`dev-2026-11a`）已确认沿用**：整树 `odin build` 干净、47 个测试全通过，上述 17937e9 语法事实全部仍然成立；引擎升级无回归（`cn-pico` +2.9%，`blake2b` -0.9% 与 `ghostrider` -0.1% 均在噪声内）
+  - **codegen 配对结论**：aggressive 模式必须配 `-microarch:native`；若配 `-microarch:generic`，比 release 的 speed 模式**更慢**（`blake2b` -15%）。本地脚本与 CI 已统一按此配对（CI release = speed+generic，aggressive = aggressive+native，i386 因 32-bit PE 限制强制 generic）
+  - **debug 模式不可用于 codegen 对比**：`-debug` 的开销会淹没编译差异，区间大幅重叠；量性能请直接用 `-o:speed` 或 `-o:aggressive`
+  - 基准测量须 100k hashes 起、≥3 轮取均值；20k 样本会被采样噪声主导（`blake2b` 曾测出 +13%，100k 后回到 -2.4%，200k 后 -0.5%）
 
 [Project Knowledge Summary]
 - Date: 2026-11-08
@@ -213,7 +217,7 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while building `api/` (HTTP/1.1 on core:net) and wiring it into main.odin
 - Category: Environment Configuration
 - Instructions:
-  - **本 nightly（2026-11-16）Odin 陷阱清单（均实测报错/误判）**：
+  - **Odin 陷阱清单（2026-11-16 nightly 实测，当前 2026-11a 仍适用）**：
     - `odin build .` 不带 `-out` 时二进制以**目录名**命名：在 `/workspace` 下得到 `./workspace`。带 `-out:<name>` 可改名（如 `-out:frostrig` 产出 `./frostrig`，**`-out` 参数存在且有效**）；两个产物可能并存且版本不一致，跑错那个会误判为"flag 未生效"，务必认准刚构建出的文件。
     - `var x: T`（无初始化）是语法错误，用 `x: T`（colon 声明，零值）或 `x := T(0)`。
     - `string([]u8)` **别名**底层字节，不拷贝：`read_request` 里 `string(hdr[:])` 后 `delete(hdr)` 会让 method/path/header 值悬垂（use-after-free，表现为路由 404/垃圾值）。凡返回给调用方的 string 必须 `strings.clone` 或显式拷贝。
