@@ -57,7 +57,8 @@ Entries discovered by the Agent during task execution should follow this format:
 - Context: Discovered by Agent while running Odin toolchain setup; updated 2026-11-17 with nightly 17937e9 syntax facts
 - Category: Environment Configuration
 - Instructions:
-  - Odin 编译器：`/usr/local/bin/odin`（wrapper），真实二进制在 `/opt/odin/odin-linux-amd64-nightly+2026-11-03/odin`
+  - Odin 编译器：`/usr/local/bin/odin`（wrapper），真实二进制在 `/opt/odin/odin-linux-amd64-nightly+2026-11a/odin`（commit `9a69916`，release `dev-2026-11a`）；上一版本 `/opt/odin/odin-linux-amd64-nightly+2026-11-16/odin`（commit `17937e9`，`dev-2026-11`）保留可回滚
+  - Odin nightly 更新方式：从 `github.com/odin-lang/Odin/releases` 取 `odin-linux-amd64-dev-<tag>.tar.gz`，解压到 `/opt/odin/odin-linux-amd64-nightly+<tag>/`（保留旧目录），改 `/usr/local/bin/odin` wrapper 的 `ODIN_ROOT` 指向新目录即可切换；`-out:<name>` 有效，默认按目录名命名
   - 需要 `clang`（已通过 apt 安装）作为 LLVM 后端 linker
   - 库包检查命令：`odin check <dir> -no-entry-point`
   - 主包检查/构建：`odin check /workspace -no-entry-point`、`odin build /workspace -out:/tmp/opencode/frostrig`
