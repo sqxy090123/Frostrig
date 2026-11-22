@@ -70,14 +70,14 @@ jobs:
           set -euo pipefail
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             curl -fSL --retry 3 -o odin.tar.gz \
-              "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-linux-amd64-dev-2026-11.tar.gz"
+              "https://github.com/odin-lang/Odin/releases/download/dev-2026-11a/odin-linux-amd64-dev-2026-11a.tar.gz"
             tar xzf odin.tar.gz -C .
             ODIR="$(ls -d odin-* | head -n 1)"
             echo "ODIN_DIR=${PWD}/${ODIR}" >> "${GITHUB_ENV}"
             "${PWD}/${ODIR}/odin" version
           else
             curl -fSL --retry 3 -o odin.zip \
-              "https://github.com/odin-lang/Odin/releases/download/dev-2026-11/odin-windows-amd64-dev-2026-11.zip"
+              "https://github.com/odin-lang/Odin/releases/download/dev-2026-11a/odin-windows-amd64-dev-2026-11a.zip"
             # PowerShell Expand-Archive is very slow for large zips.
             # Use 7z if available, otherwise fall back to PowerShell.
             if command -v 7z &>/dev/null; then

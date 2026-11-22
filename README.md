@@ -14,7 +14,7 @@ frostrig 是用 [Odin](https://odin-lang.org) 实现的多算法 CPU 挖矿客�
 - **Worm/2 可视化**：`gui/` 提供自包含 HTML 页面，轮询 `/gui/trace` 在 Canvas 上渲染 torus 行走轨迹，`/gui/trace` 以每进程 token 门控
 - **开发费与休息**：1% nonce 空间保留给开发者，每 64 个切片休眠 50 秒降低功耗
 - **跨平台**：Linux（主要目标）/ Windows MSVC（CI 验证）
-- **激进编译优化**：支持 `-O3 -march=native` 和 `-o:aggressive` 优化，性能提升最高 8.5%
+- **激进编译优化**：支持 `-O3 -march=native` 和 `-o:aggressive` 优化，相对 release 提升约 3–4%
 
 ## 目录结构
 
@@ -91,7 +91,7 @@ frostrig/
 
 ### 前置要求
 
-- Odin 编译器（`odin build` 自动查找；本项目验证版本为 nightly+2026-11-16）
+- Odin 编译器（`odin build` 自动查找；本项目验证版本为 nightly+2026-11a，commit `9a69916`）
 - C 编译器（`cc` / `clang`）用于编译 vendored 库与 C FFI 包装
 - Linux 上需要 `libstdc++`、`libpthread`、`libdl`、`libm`
 
@@ -200,10 +200,11 @@ worm/2   (alias: worm2)      (memory: 2048 MB)
 ./frostrig -a rx/0 -t 4 --bench --bench-count 2000 --no-huge-pages --no-gui
 ```
 
-**性能优化效果**：
-- **BLAKE2b**: 激进优化比标准版本快 8.5%
-- **CN-PICO**: 激进优化比标准版本快 1.8%
-- **RandomX/0**: 激进优化比标准版本快 2.6%
+**性能优化效果**（aggressive 相对 release，Odin nightly+2026-11a 实测）：
+- **BLAKE2b**: 激进优化比标准版本快 3.8%
+- **CN-PICO**: 激进优化比标准版本快 3.1%
+- **GhostRider**: 激进优化比标准版本快 3.2%
+- **RandomX/0**: 激进优化比标准版本快 2.6%（历史实测，未在本次重测）
 
 ### 加载插件
 
@@ -342,17 +343,17 @@ odin test tests/
 
 ## 性能参考
 
-| 算法 | 1 线程 | 4 线程 | 激进优化提升 | 备注 |
+| 算法 | 1 线程（release `-o:speed -microarch:generic`） | 4 线程 | aggressive（`-o:aggressive -microarch:native`）相对提升 | 备注 |
 |------|--------|--------|-------------|------|
 | rx/0（内置） | ~38.9 H/s | ~75.8 H/s | +2.6% | 含 pipeline |
 | rx0-plugin（插件） | ~42.7 H/s | ~40.7 H/s | - | 插件路径，略低 |
 | argon2id | ~200 H/s | ~800 H/s | - | 轻量算法 |
-| **BLAKE2b** | ~2.9M H/s | - | **+8.5%** | 新增算法 |
-| **CN-PICO** | ~774K H/s | - | **+1.8%** | 新增算法 |
-| **CN-Heavy/0** | ~70K H/s | - | - | 新增算法（软件 AES 默认） |
-| **GhostRider** | ~739K H/s | - | **-10.5%** ⚠️ | 新增算法 |
+| **BLAKE2b** | ~4.3M H/s | - | **+3.8%** | 无状态算法 |
+| **CN-PICO** | ~1.55M H/s | - | **+3.1%** | 256 KiB 内存池 |
+| **CN-Heavy/0** | ~70K H/s | - | - | 软件 AES 默认 |
+| **GhostRider** | ~950K H/s | - | **+3.2%** | 1 MiB 密钥流缓冲 |
 
-*基准值因 CPU / 内存 / 大页配置而异；上述为本开发环境（无 2 GB hugepages）实测。*
+*以上为本开发环境（无 2 GB hugepages、Odin nightly+2026-11a）实测：`-a <algo> -t 1 --bench --bench-count 100000 --no-gui`，每种模式 3–5 轮取均值。rx/0、argon2id、CN-Heavy/0 的历史数值未在本次重测（rx/0 需 2 GiB 数据集，本机内存不足）。基准值随 CPU / 内存 / 大页配置而异。*
 
 ## 新增算法说明
 
@@ -360,13 +361,13 @@ odin test tests/
 - **类型**: 状态less哈希算法
 - **内存使用**: 0 MB
 - **特点**: 高性能，无状态，适合CPU挖矿
-- **性能**: 2.9M H/s (激进优化后 3.1M H/s)
+- **性能**: ~4.3M H/s（release `-o:speed`）
 
 ### CryptoNight PICO
 - **类型**: CryptoNight变体
 - **内存使用**: 0 MB
 - **特点**: 256 KiB内存池，轻量级实现
-- **性能**: 774K H/s (激进优化后 788K H/s)
+- **性能**: ~1.55M H/s（release `-o:speed`）
 
 ### CryptoNight Heavy/0
 - **类型**: CryptoNight 变体
@@ -378,7 +379,7 @@ odin test tests/
 - **类型**: 变色龙哈希算法
 - **内存使用**: 1 MB
 - **特点**: 1 MiB BLAKE2b密钥流缓冲区，2-8轮变色龙链
-- **性能**: 739K H/s (激进优化后性能下降，需要进一步优化)
+- **性能**: ~950K H/s（release `-o:speed`，aggressive 模式约 +3%）
 
 ### RX/ODIN (rx/odin)
 - **类型**: RandomX 纯 Odin 重实现
@@ -399,7 +400,6 @@ odin test tests/
 - `--coin` 参数仅信息性，未接入币种数据库
 - HTTP 控制 API 与 GUI viewer 默认绑定 `0.0.0.0`（api 为 18081、viewer 为 18090）；暴露到公网前应在防火墙/反代层收敛监听地址
 - 生产环境应启用 `LARGE_PAGES`（需宿主机 2 GB hugepages 配置）
-- GhostRider 算法在激进优化下性能下降，需要单独优化策略
 
 ## 许可证
 
